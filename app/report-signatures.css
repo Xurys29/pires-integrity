@@ -1,0 +1,14 @@
+.report-signatures { margin-block: 1rem; }
+.report-signatures-note { color: var(--muted, #5b6c75); font-size: .9rem; line-height: 1.6; }
+.report-signatures-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
+.report-signatures-person { display: flex; flex-direction: column; gap: .7rem; min-width: 0; margin: 0; padding: 1rem; border: 1px solid #d8e2e6; border-radius: 12px; background: #fff; }
+.report-signatures-person legend { padding-inline: .3rem; color: #003c58; font-weight: 700; font-size: .95rem; }
+.report-signatures-field { display: grid; gap: .35rem; }
+.report-signatures-person label { display: block; font-size: .86rem; font-weight: 600; }
+.report-signatures-person input { box-sizing: border-box; width: 100%; min-width: 0; margin: 0; }
+.report-signatures-person input[type="file"] { padding: .5rem; font-size: .8rem; }
+.report-signatures-preview { object-fit: contain; max-width: 100%; height: 90px; border: 1px dashed #b9cdd5; background: #fafafa; border-radius: 6px; }
+.report-signatures-remove { align-self: flex-start; padding: .45rem .7rem; font-size: .8rem; }
+.report-signatures-status { min-height: 1.2em; margin: 0; color: #5b6c75; font-size: .82rem; line-height: 1.4; overflow-wrap: anywhere; }
+.report-signatures [hidden] { display: none !important; }
+@media (max-width: 1000px) { .report-signatures-grid { grid-template-columns: 1fr; } }
