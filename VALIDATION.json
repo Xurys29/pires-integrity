@@ -1,0 +1,70 @@
+{
+  "preparedAtUTC": "2026-10-20T21:16:46.153124+00:00",
+  "platform": {
+    "verifiedOn": "Windows",
+    "node": "v24.19.0",
+    "linuxExecutionPerformed": false
+  },
+  "dependencyInstallation": {
+    "manager": "npm 11.6.2",
+    "command": "npm ci --ignore-scripts --no-audit --no-fund",
+    "cleanTemporaryCopy": true,
+    "exitCode": 0,
+    "installedPackages": 23,
+    "jspdf": "4.2.1"
+  },
+  "pdfTests": {
+    "command": "node --test tests/pdf-modelos.test.cjs",
+    "finalFrozenGenerators": true,
+    "tests": 12,
+    "passed": 12,
+    "failed": 0,
+    "exitCode": 0
+  },
+  "syntaxAndConfiguration": {
+    "command": "node scripts/check.cjs",
+    "passed": true,
+    "checks": [
+      "JavaScript syntax",
+      "credential-free demo runtime",
+      "no credential-shaped values in sources"
+    ]
+  },
+  "httpSmoke": {
+    "passed": true,
+    "scope": [
+      "index",
+      "demo runtime",
+      "NR13 generator route",
+      "CSP connect-src self",
+      "Referrer-Policy",
+      "file isolation",
+      "GET/HEAD method restriction"
+    ],
+    "process": "own temporary server, stopped after checks",
+    "sandboxAttempt": "initial loopback EACCES; authorized local-only repetition passed"
+  },
+  "hygiene": {
+    "appFiles": 33,
+    "siteFiles": 25,
+    "privateCustomerAttachments": false,
+    "nodeModulesIncluded": false,
+    "productionConfigIncluded": false,
+    "cloudAttachmentsPersistenceImplemented": false
+  },
+  "publicationReportedByMainExecutor": {
+    "project": "pires-integrity-app",
+    "deploymentId": "da2fcbe4-ac9c-416e-b45b-c4181e6364c8",
+    "deploymentUrl": "https://da2fcbe4.pires-integrity-app.pages.dev/",
+    "date": "2026-10-20",
+    "officialIndexWithNR13ModuleObserved": true,
+    "previewEdgeLogoPhotoAndBothDownloadsVerified": true,
+    "authenticatedProductionE2EPerformed": false
+  },
+  "cloudCodingConnection": {
+    "githubRepositoryCreated": false,
+    "githubUploadPerformed": false,
+    "cloudThreadCreated": false,
+    "connectionCompleted": false
+  }
+}

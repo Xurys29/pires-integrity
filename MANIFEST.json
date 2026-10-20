@@ -1,0 +1,486 @@
+{
+  "preparedAtUTC": "2026-10-20T21:16:46.352985+00:00",
+  "purpose": "Portable, credential-free demo source snapshot for future Codex Cloud continuation; not uploaded.",
+  "appSource": "aplicativo/release-pmta-pdf-20261020/dist",
+  "siteSource": "site-institucional/release-rodape-20261020/dist",
+  "filesListed": 67,
+  "manifestSelfExcludedFromFileHashes": true,
+  "exclusions": [
+    "production runtime-config values",
+    "publishable/secret keys",
+    "environment files",
+    "sessions",
+    "private customer documents or payloads",
+    "generated PDFs and outputs",
+    "node_modules",
+    "local management and other absent pilot modules"
+  ],
+  "files": [
+    {
+      "path": ".gitignore",
+      "bytes": 67,
+      "sha256": "05c9e8c2390fae71698df8bcd6f2e3d693c6dffab8fdec41dc432fc7a99b060f",
+      "source": "Generated for portable handoff."
+    },
+    {
+      "path": "app/404.html",
+      "bytes": 161,
+      "sha256": "980af0e2a6a51c81bd99cc7c72c01357dca8e5e0aa8d0e2d2d778cc868b7c360",
+      "source": "aplicativo/release-pmta-pdf-20261020/dist/404.html",
+      "sourceSha256": "980af0e2a6a51c81bd99cc7c72c01357dca8e5e0aa8d0e2d2d778cc868b7c360"
+    },
+    {
+      "path": "app/_headers",
+      "bytes": 384,
+      "sha256": "b66519daf19a183e3754bd64de6475c969373ea68c05cdbc53d8d7f751c3d014",
+      "source": "aplicativo/release-pmta-pdf-20261020/dist/_headers",
+      "sourceSha256": "abfb065aebd73800f69b6d0ada0f30a042bb5a86b2f942903606f3e02c842aed",
+      "adaptation": "Production Supabase connect-src replaced by self for portable demo."
+    },
+    {
+      "path": "app/access-policy.js",
+      "bytes": 5397,
+      "sha256": "281a0720d1de8027ce3c994ba3f5111d8aebdc7eea0d1fcc3b3cc0e9449d7119",
+      "source": "aplicativo/release-pmta-pdf-20261020/dist/access-policy.js",
+      "sourceSha256": "281a0720d1de8027ce3c994ba3f5111d8aebdc7eea0d1fcc3b3cc0e9449d7119"
+    },
+    {
+      "path": "app/account-ui.js",
+      "bytes": 32799,
+      "sha256": "cfd7b076cd90a560262cd708a7ba9a1171caebdb7f18833f23446289c4d61da8",
+      "source": "aplicativo/release-pmta-pdf-20261020/dist/account-ui.js",
+      "sourceSha256": "cfd7b076cd90a560262cd708a7ba9a1171caebdb7f18833f23446289c4d61da8"
+    },
+    {
+      "path": "app/admin-ui.js",
+      "bytes": 29110,
+      "sha256": "8c7bbee412d81cc39ed80ec102a6a5162fe2e365b4af99f7e2a86d431a48793a",
+      "source": "aplicativo/release-pmta-pdf-20261020/dist/admin-ui.js",
+      "sourceSha256": "8c7bbee412d81cc39ed80ec102a6a5162fe2e365b4af99f7e2a86d431a48793a"
+    },
+    {
+      "path": "app/admin.css",
+      "bytes": 5770,
+      "sha256": "2a2028a1db4eef39ead9e09bdd6beebc41937e87a9a635fac543b7fe7c0f1487",
+      "source": "aplicativo/release-pmta-pdf-20261020/dist/admin.css",
+      "sourceSha256": "2a2028a1db4eef39ead9e09bdd6beebc41937e87a9a635fac543b7fe7c0f1487"
+    },
+    {
+      "path": "app/admin.html",
+      "bytes": 6427,
+      "sha256": "95fe93e1c28b784a5ebe53d339019ed6e4bb9aa15568420018acf74646d8cabc",
+      "source": "aplicativo/release-pmta-pdf-20261020/dist/admin.html",
+      "sourceSha256": "95fe93e1c28b784a5ebe53d339019ed6e4bb9aa15568420018acf74646d8cabc"
+    },
+    {
+      "path": "app/app.js",
+      "bytes": 27230,
+      "sha256": "b2e11ddf8efa7712461d4ad4d63007063395fed4cdd737aced055f396c206026",
+      "source": "aplicativo/release-pmta-pdf-20261020/dist/app.js",
+      "sourceSha256": "9ff9362872efbe49b2d0549b39556f783e964ef261e5df237aa5693221338c1a",
+      "adaptation": "Only portable demo gates for absent pilots and synthetic life example; calculation engine unchanged."
+    },
+    {
+      "path": "app/assets/pires-brand.js",
+      "bytes": 735541,
+      "sha256": "ba9e00d7f91c2bb30d49e49263cd64389331162278e04410c13cad3e9480910e",
+      "source": "aplicativo/release-pmta-pdf-20261020/dist/assets/pires-brand.js",
+      "sourceSha256": "ba9e00d7f91c2bb30d49e49263cd64389331162278e04410c13cad3e9480910e"
+    },
+    {
+      "path": "app/calculations.js",
+      "bytes": 16797,
+      "sha256": "de97854f8c397639ef8fac9376040225ad5c7bd8d95d3ac724eeaae495c370a9",
+      "source": "aplicativo/release-pmta-pdf-20261020/dist/calculations.js",
+      "sourceSha256": "de97854f8c397639ef8fac9376040225ad5c7bd8d95d3ac724eeaae495c370a9"
+    },
+    {
+      "path": "app/calculator-pdf.js",
+      "bytes": 38508,
+      "sha256": "521d1cf8ef74d6adade8329ed743fcb6a42e213d1aa588c99fff197ec182f4ef",
+      "source": "aplicativo/release-pmta-pdf-20261020/dist/calculator-pdf.js",
+      "sourceSha256": "521d1cf8ef74d6adade8329ed743fcb6a42e213d1aa588c99fff197ec182f4ef"
+    },
+    {
+      "path": "app/calculator-report-ui.js",
+      "bytes": 11301,
+      "sha256": "a27c004b451e517952c5dc986fed1c46f3e0b40d4ccf9db82b8a1bf55964010d",
+      "source": "aplicativo/release-pmta-pdf-20261020/dist/calculator-report-ui.js",
+      "sourceSha256": "a27c004b451e517952c5dc986fed1c46f3e0b40d4ccf9db82b8a1bf55964010d"
+    },
+    {
+      "path": "app/cloud.js",
+      "bytes": 27939,
+      "sha256": "1dd3fa5516a86aa7d9bf53800f4cb011aa12d8a5560a719edf658d5c516e4b45",
+      "source": "aplicativo/release-pmta-pdf-20261020/dist/cloud.js",
+      "sourceSha256": "1dd3fa5516a86aa7d9bf53800f4cb011aa12d8a5560a719edf658d5c516e4b45"
+    },
+    {
+      "path": "app/construction-code.js",
+      "bytes": 4957,
+      "sha256": "9d74d1b6018b4140c4708d4a8ae17303d863eefd34af558df46d6d7e52fce831",
+      "source": "aplicativo/release-pmta-pdf-20261020/dist/construction-code.js",
+      "sourceSha256": "9d74d1b6018b4140c4708d4a8ae17303d863eefd34af558df46d6d7e52fce831"
+    },
+    {
+      "path": "app/index.html",
+      "bytes": 29417,
+      "sha256": "86c14e60a1cd9a9b3f1e9e293bd7db0a8ad67e721439fb6b743a7d66e03a77c3",
+      "source": "aplicativo/release-pmta-pdf-20261020/dist/index.html",
+      "sourceSha256": "86c14e60a1cd9a9b3f1e9e293bd7db0a8ad67e721439fb6b743a7d66e03a77c3"
+    },
+    {
+      "path": "app/me-batch.js",
+      "bytes": 8647,
+      "sha256": "4735d0789ec64f33f2b658d330c16f64b639bb3f7b66ff0925e010e9bb04a432",
+      "source": "aplicativo/release-pmta-pdf-20261020/dist/me-batch.js",
+      "sourceSha256": "4735d0789ec64f33f2b658d330c16f64b639bb3f7b66ff0925e010e9bb04a432"
+    },
+    {
+      "path": "app/me-pdf.js",
+      "bytes": 30335,
+      "sha256": "ffb52ea1f4527481b494d2e1fb12861e750b623b67f555dc3224038a4cd01e68",
+      "source": "aplicativo/release-pmta-pdf-20261020/dist/me-pdf.js",
+      "sourceSha256": "ffb52ea1f4527481b494d2e1fb12861e750b623b67f555dc3224038a4cd01e68"
+    },
+    {
+      "path": "app/me-risk.js",
+      "bytes": 9229,
+      "sha256": "995dd2a2952bdab38eb41d5db7b1b10626dfd8f711c5235ac7eb1fe8320c4776",
+      "source": "aplicativo/release-pmta-pdf-20261020/dist/me-risk.js",
+      "sourceSha256": "995dd2a2952bdab38eb41d5db7b1b10626dfd8f711c5235ac7eb1fe8320c4776"
+    },
+    {
+      "path": "app/me-ui.js",
+      "bytes": 29175,
+      "sha256": "07b111c11e34d77e546ade2cddd4a1e25aaa3f55b4cfb83ae2b1d3632abf0c98",
+      "source": "aplicativo/release-pmta-pdf-20261020/dist/me-ui.js",
+      "sourceSha256": "07b111c11e34d77e546ade2cddd4a1e25aaa3f55b4cfb83ae2b1d3632abf0c98"
+    },
+    {
+      "path": "app/me.css",
+      "bytes": 2978,
+      "sha256": "3e62b3b0622658337eac2e8dc1390a0fbdbcf14b391fcf00a4a081f7cd9f7158",
+      "source": "aplicativo/release-pmta-pdf-20261020/dist/me.css",
+      "sourceSha256": "3e62b3b0622658337eac2e8dc1390a0fbdbcf14b391fcf00a4a081f7cd9f7158"
+    },
+    {
+      "path": "app/me.html",
+      "bytes": 5091,
+      "sha256": "d8527f42a57cdfb63db6a21d185bbba60cc7b17f81bf12045fd4c9fd343a3338",
+      "source": "aplicativo/release-pmta-pdf-20261020/dist/me.html",
+      "sourceSha256": "d8527f42a57cdfb63db6a21d185bbba60cc7b17f81bf12045fd4c9fd343a3338"
+    },
+    {
+      "path": "app/nr13-pdf.js",
+      "bytes": 28809,
+      "sha256": "8cc9415a2b7e191ffc42bdf3a759851f74ff33b5c1b7be04c782fccdfbc55f83",
+      "source": "aplicativo/release-pmta-pdf-20261020/dist/nr13-pdf.js",
+      "sourceSha256": "8cc9415a2b7e191ffc42bdf3a759851f74ff33b5c1b7be04c782fccdfbc55f83"
+    },
+    {
+      "path": "app/nr13-ui.js",
+      "bytes": 11714,
+      "sha256": "064a5b44f9c2cdc9152d8f050df5a4b472ea7e24628a07ba1c832e4ab2c5b6e2",
+      "source": "aplicativo/release-pmta-pdf-20261020/dist/nr13-ui.js",
+      "sourceSha256": "064a5b44f9c2cdc9152d8f050df5a4b472ea7e24628a07ba1c832e4ab2c5b6e2"
+    },
+    {
+      "path": "app/nr13.js",
+      "bytes": 22548,
+      "sha256": "ff5db60c5da8643b95d2482146254518c727f4b56e15afbe5a33169ae6e51a4b",
+      "source": "aplicativo/release-pmta-pdf-20261020/dist/nr13.js",
+      "sourceSha256": "ff5db60c5da8643b95d2482146254518c727f4b56e15afbe5a33169ae6e51a4b"
+    },
+    {
+      "path": "app/report-signatures.css",
+      "bytes": 1398,
+      "sha256": "8418aa257b250a686cc39a4e035327f3494ce135478c907fff0175f8460646ee",
+      "source": "aplicativo/release-pmta-pdf-20261020/dist/report-signatures.css",
+      "sourceSha256": "8418aa257b250a686cc39a4e035327f3494ce135478c907fff0175f8460646ee"
+    },
+    {
+      "path": "app/report-signatures.js",
+      "bytes": 13068,
+      "sha256": "ead4b04c4b50db6f4b1dc295d11d0cf503b8a6876d452269a86d41f782ec56ce",
+      "source": "aplicativo/release-pmta-pdf-20261020/dist/report-signatures.js",
+      "sourceSha256": "ead4b04c4b50db6f4b1dc295d11d0cf503b8a6876d452269a86d41f782ec56ce"
+    },
+    {
+      "path": "app/risk-ui.js",
+      "bytes": 9885,
+      "sha256": "5f53115eaaba2bb4b06e96e15e46ec631799fbd771eb2cad024c553c7779ff13",
+      "source": "aplicativo/release-pmta-pdf-20261020/dist/risk-ui.js",
+      "sourceSha256": "5f53115eaaba2bb4b06e96e15e46ec631799fbd771eb2cad024c553c7779ff13"
+    },
+    {
+      "path": "app/risk.css",
+      "bytes": 1464,
+      "sha256": "d94f296e4442eab3078e6a617614a82d9916d14ce2ecd893c4d503deade201be",
+      "source": "aplicativo/release-pmta-pdf-20261020/dist/risk.css",
+      "sourceSha256": "d94f296e4442eab3078e6a617614a82d9916d14ce2ecd893c4d503deade201be"
+    },
+    {
+      "path": "app/risk.js",
+      "bytes": 7207,
+      "sha256": "04474a44154e9fad1656a8263d861634cd2b73b0868dda04285d566bb33bba1f",
+      "source": "aplicativo/release-pmta-pdf-20261020/dist/risk.js",
+      "sourceSha256": "04474a44154e9fad1656a8263d861634cd2b73b0868dda04285d566bb33bba1f"
+    },
+    {
+      "path": "app/runtime-config.js",
+      "bytes": 53,
+      "sha256": "4b76fd3b4904a23368c841bc490fd6e68e15b96d5ba71ddb1f2fdccea2a01fed",
+      "source": "aplicativo/release-pmta-pdf-20261020/dist/runtime-config.js",
+      "adaptation": "Generated credential-free demo replacement; production configuration was excluded."
+    },
+    {
+      "path": "app/styles.css",
+      "bytes": 11417,
+      "sha256": "7b351be5366b6376d8242bb956a7a0e10c0c4f6ed8f05cd055c282f753c12bf4",
+      "source": "aplicativo/release-pmta-pdf-20261020/dist/styles.css",
+      "sourceSha256": "7b351be5366b6376d8242bb956a7a0e10c0c4f6ed8f05cd055c282f753c12bf4"
+    },
+    {
+      "path": "app/vendor/pdf.js",
+      "bytes": 818583,
+      "sha256": "d02aeff38ff5e8a02a7a69d904cb00f4f008432c8463ff443710920a11710f20",
+      "source": "aplicativo/release-pmta-pdf-20261020/dist/vendor/pdf.js",
+      "sourceSha256": "d02aeff38ff5e8a02a7a69d904cb00f4f008432c8463ff443710920a11710f20"
+    },
+    {
+      "path": "app/vendor/supabase.js",
+      "bytes": 222834,
+      "sha256": "24cfd1e0576aa77b0411a2501fec779546f7ce472866846e7c5d03e211cecd18",
+      "source": "aplicativo/release-pmta-pdf-20261020/dist/vendor/supabase.js",
+      "sourceSha256": "24cfd1e0576aa77b0411a2501fec779546f7ce472866846e7c5d03e211cecd18"
+    },
+    {
+      "path": "package-lock.json",
+      "bytes": 9708,
+      "sha256": "e99c35baa669e22015c582690905bf89aa5517965799e6b900402a0a7ed38d9d",
+      "source": "Generated for portable handoff."
+    },
+    {
+      "path": "package.json",
+      "bytes": 509,
+      "sha256": "092f1b5c2bc6981588d56a30193c3458d7da85f7fcb96cbbc6a49b5ef5337acb",
+      "source": "Generated for portable handoff."
+    },
+    {
+      "path": "README.md",
+      "bytes": 4710,
+      "sha256": "dfd6cced04fad965ec10493e5fe48415009aef92a8921e7b38214d4c0d9d85c5",
+      "source": "Generated for portable handoff."
+    },
+    {
+      "path": "scripts/check.cjs",
+      "bytes": 1104,
+      "sha256": "021929054de90f85dda1fc8c5d05a63203daf353664bc5886a222e162efc5df4",
+      "source": "Generated for portable handoff."
+    },
+    {
+      "path": "scripts/serve.cjs",
+      "bytes": 1884,
+      "sha256": "6dbe7b486e4de95af37881e22c373344bdd45c7f2835ecd67d918e91304a9c4a",
+      "source": "Generated for portable handoff."
+    },
+    {
+      "path": "site/404.html",
+      "bytes": 507,
+      "sha256": "a2eac862cf7c32d0ef20539b4904c4fd203e2cb733a27288346a36d71c8aa6d7",
+      "source": "site-institucional/release-rodape-20261020/dist/404.html",
+      "sourceSha256": "a2eac862cf7c32d0ef20539b4904c4fd203e2cb733a27288346a36d71c8aa6d7"
+    },
+    {
+      "path": "site/_headers",
+      "bytes": 349,
+      "sha256": "01b7345c188f8751e6886e32a71425e7d36effd24a74421ba7a9f7477fd01514",
+      "source": "site-institucional/release-rodape-20261020/dist/_headers",
+      "sourceSha256": "01b7345c188f8751e6886e32a71425e7d36effd24a74421ba7a9f7477fd01514"
+    },
+    {
+      "path": "site/aplicativo.html",
+      "bytes": 13239,
+      "sha256": "bf9ab69a9f581cb08783dad67dde2ed7196854f223afcad2b3ecc3f425a187be",
+      "source": "site-institucional/release-rodape-20261020/dist/aplicativo.html",
+      "sourceSha256": "bf9ab69a9f581cb08783dad67dde2ed7196854f223afcad2b3ecc3f425a187be"
+    },
+    {
+      "path": "site/app-page.css",
+      "bytes": 7804,
+      "sha256": "4149e032c3ff69472af3fa9a9a16d3f24fe1feb8cb026ce40bcd05e2d101c23a",
+      "source": "site-institucional/release-rodape-20261020/dist/app-page.css",
+      "sourceSha256": "4149e032c3ff69472af3fa9a9a16d3f24fe1feb8cb026ce40bcd05e2d101c23a"
+    },
+    {
+      "path": "site/assets/bancada-ensaios.png",
+      "bytes": 1503130,
+      "sha256": "0959acf43cbaa3da6ee02e0546410d1c293d425c881c01923612d6ff08915e23",
+      "source": "site-institucional/release-rodape-20261020/dist/assets/bancada-ensaios.png",
+      "sourceSha256": "0959acf43cbaa3da6ee02e0546410d1c293d425c881c01923612d6ff08915e23"
+    },
+    {
+      "path": "site/assets/manometros-bancada.png",
+      "bytes": 505874,
+      "sha256": "faf634fc16ffa09e9e7fbb6adb8dbc0ad6028a7cfd9a31bc5e1f116d99ddc37d",
+      "source": "site-institucional/release-rodape-20261020/dist/assets/manometros-bancada.png",
+      "sourceSha256": "faf634fc16ffa09e9e7fbb6adb8dbc0ad6028a7cfd9a31bc5e1f116d99ddc37d"
+    },
+    {
+      "path": "site/assets/offshore-corrosao.jpg",
+      "bytes": 190160,
+      "sha256": "9a907fc314ac2555aaa53f66e3e925968eea3929ff4e0f6f22b3c2d976df5094",
+      "source": "site-institucional/release-rodape-20261020/dist/assets/offshore-corrosao.jpg",
+      "sourceSha256": "9a907fc314ac2555aaa53f66e3e925968eea3929ff4e0f6f22b3c2d976df5094"
+    },
+    {
+      "path": "site/assets/offshore-sistemas.jpg",
+      "bytes": 201182,
+      "sha256": "b0f620a96d4dc63af7efd834dcbb247b9622b4a0854328e863510d8f54ac89ac",
+      "source": "site-institucional/release-rodape-20261020/dist/assets/offshore-sistemas.jpg",
+      "sourceSha256": "b0f620a96d4dc63af7efd834dcbb247b9622b4a0854328e863510d8f54ac89ac"
+    },
+    {
+      "path": "site/assets/offshore-tubulacoes.jpg",
+      "bytes": 2469781,
+      "sha256": "ba14fadb39c2f0a93bd3346bc22966bbe490e4c321958d7779eba4a3aa78b688",
+      "source": "site-institucional/release-rodape-20261020/dist/assets/offshore-tubulacoes.jpg",
+      "sourceSha256": "ba14fadb39c2f0a93bd3346bc22966bbe490e4c321958d7779eba4a3aa78b688"
+    },
+    {
+      "path": "site/assets/pires-logo-1.jpg",
+      "bytes": 46405,
+      "sha256": "0277ecc299478abe8b54e130e39407fb54c0891bd57ad63e339b31986afecf79",
+      "source": "site-institucional/release-rodape-20261020/dist/assets/pires-logo-1.jpg",
+      "sourceSha256": "0277ecc299478abe8b54e130e39407fb54c0891bd57ad63e339b31986afecf79"
+    },
+    {
+      "path": "site/assets/pires-logo-2.jpg",
+      "bytes": 27584,
+      "sha256": "515d2973ef290144313015521be15c34db6624612ec80a716de87019b935e5ba",
+      "source": "site-institucional/release-rodape-20261020/dist/assets/pires-logo-2.jpg",
+      "sourceSha256": "515d2973ef290144313015521be15c34db6624612ec80a716de87019b935e5ba"
+    },
+    {
+      "path": "site/assets/portfolio-1-0.jpg",
+      "bytes": 35345,
+      "sha256": "4d01b577a2745aea2aa894f2cde5ae85787eff7d53b491a78e4b256af3d1b3ed",
+      "source": "site-institucional/release-rodape-20261020/dist/assets/portfolio-1-0.jpg",
+      "sourceSha256": "4d01b577a2745aea2aa894f2cde5ae85787eff7d53b491a78e4b256af3d1b3ed"
+    },
+    {
+      "path": "site/assets/portfolio-1-1.jpg",
+      "bytes": 218509,
+      "sha256": "cfad34db5b865dc443df653fa36023666021a665cb629bcd4b9877282f2a3d04",
+      "source": "site-institucional/release-rodape-20261020/dist/assets/portfolio-1-1.jpg",
+      "sourceSha256": "cfad34db5b865dc443df653fa36023666021a665cb629bcd4b9877282f2a3d04"
+    },
+    {
+      "path": "site/assets/portfolio-10-0.jpg",
+      "bytes": 172466,
+      "sha256": "36b834bae15da84ac6400a4629a240715a2217793a125888e46f778d6289435e",
+      "source": "site-institucional/release-rodape-20261020/dist/assets/portfolio-10-0.jpg",
+      "sourceSha256": "36b834bae15da84ac6400a4629a240715a2217793a125888e46f778d6289435e"
+    },
+    {
+      "path": "site/assets/portfolio-8-0.jpg",
+      "bytes": 151940,
+      "sha256": "019c290091f1e42db93ea75fd2be82ee00cf7f4e37ca2ca3a8c31c2c343e795d",
+      "source": "site-institucional/release-rodape-20261020/dist/assets/portfolio-8-0.jpg",
+      "sourceSha256": "019c290091f1e42db93ea75fd2be82ee00cf7f4e37ca2ca3a8c31c2c343e795d"
+    },
+    {
+      "path": "site/assets/projeto-passarela-mv38.png",
+      "bytes": 3080131,
+      "sha256": "9f8c8932abe9068ef11f75742e4d1c9a716565addfe26f8116353499308f8b63",
+      "source": "site-institucional/release-rodape-20261020/dist/assets/projeto-passarela-mv38.png",
+      "sourceSha256": "9f8c8932abe9068ef11f75742e4d1c9a716565addfe26f8116353499308f8b63"
+    },
+    {
+      "path": "site/assets/psv-bancada.png",
+      "bytes": 1228239,
+      "sha256": "9fb3a70009306a2335a9c37766cdf2b2318396726e9512f9485366a594fa24b8",
+      "source": "site-institucional/release-rodape-20261020/dist/assets/psv-bancada.png",
+      "sourceSha256": "9fb3a70009306a2335a9c37766cdf2b2318396726e9512f9485366a594fa24b8"
+    },
+    {
+      "path": "site/assets/psv-desmontada-anonimizada.png",
+      "bytes": 2042047,
+      "sha256": "b45c2838d56899bf665ac5f70f848e0f491756f6a6b24e34bf31df7fdbe91a3e",
+      "source": "site-institucional/release-rodape-20261020/dist/assets/psv-desmontada-anonimizada.png",
+      "sourceSha256": "b45c2838d56899bf665ac5f70f848e0f491756f6a6b24e34bf31df7fdbe91a3e"
+    },
+    {
+      "path": "site/assets/psv-expedicao.jpg",
+      "bytes": 303625,
+      "sha256": "e3c99e5c8d30c788af20ed0516e5080661c86f9a166e502adf47ea313ffd0815",
+      "source": "site-institucional/release-rodape-20261020/dist/assets/psv-expedicao.jpg",
+      "sourceSha256": "e3c99e5c8d30c788af20ed0516e5080661c86f9a166e502adf47ea313ffd0815"
+    },
+    {
+      "path": "site/assets/psv-finalizada.jpg",
+      "bytes": 288917,
+      "sha256": "58b458e79dc43e1d7b38fc1ecfce7bbbf769362b4f6e09594dd5f2ebcee94b0e",
+      "source": "site-institucional/release-rodape-20261020/dist/assets/psv-finalizada.jpg",
+      "sourceSha256": "58b458e79dc43e1d7b38fc1ecfce7bbbf769362b4f6e09594dd5f2ebcee94b0e"
+    },
+    {
+      "path": "site/index.html",
+      "bytes": 35279,
+      "sha256": "1097e70dcaf19c2eeea9349f4adfa751ba0044b8a01b288948fbd43f841e54ab",
+      "source": "site-institucional/release-rodape-20261020/dist/index.html",
+      "sourceSha256": "1097e70dcaf19c2eeea9349f4adfa751ba0044b8a01b288948fbd43f841e54ab"
+    },
+    {
+      "path": "site/robots.txt",
+      "bytes": 83,
+      "sha256": "3408141faa779e7924608cad85f3144ad61db59b1e93e8203fc53017b8a4386d",
+      "source": "site-institucional/release-rodape-20261020/dist/robots.txt",
+      "sourceSha256": "3408141faa779e7924608cad85f3144ad61db59b1e93e8203fc53017b8a4386d"
+    },
+    {
+      "path": "site/site.js",
+      "bytes": 58529,
+      "sha256": "632eecce27b40caadb2055fe7e9f6876f73386cffc52dc69f84c9756f942b470",
+      "source": "site-institucional/release-rodape-20261020/dist/site.js",
+      "sourceSha256": "632eecce27b40caadb2055fe7e9f6876f73386cffc52dc69f84c9756f942b470"
+    },
+    {
+      "path": "site/sitemap.xml",
+      "bytes": 233,
+      "sha256": "46db3a02bb420a3bcb01423b5d5d87ea72769b4497a62d92d6e6751c75e22a8c",
+      "source": "site-institucional/release-rodape-20261020/dist/sitemap.xml",
+      "sourceSha256": "46db3a02bb420a3bcb01423b5d5d87ea72769b4497a62d92d6e6751c75e22a8c"
+    },
+    {
+      "path": "site/style.css",
+      "bytes": 29548,
+      "sha256": "967b48c71090eeebc5a09fae7bb1f0971c84d9dae4951c8ae18d89edd76cfe82",
+      "source": "site-institucional/release-rodape-20261020/dist/style.css",
+      "sourceSha256": "967b48c71090eeebc5a09fae7bb1f0971c84d9dae4951c8ae18d89edd76cfe82"
+    },
+    {
+      "path": "tests/calculator-pdf.fixture.cjs",
+      "bytes": 3623,
+      "sha256": "ef6d55437ffb12cfa9425e9fe205f704c3c2b1e651cf114b18dc1621a1cdfe96",
+      "source": "aplicativo/testes/calculator-pdf.fixture.cjs",
+      "sourceSha256": "16d27bba0510af7aba1d4b33447a352a4a482064382c813dfa0932a05903e277",
+      "adaptation": "Synthetic fixture now imports corrected engine from app/."
+    },
+    {
+      "path": "tests/pdf-modelos.test.cjs",
+      "bytes": 11800,
+      "sha256": "2237a54e7065195691a17f4e44c39dc41903806bdfb61cd3de74096945a45266",
+      "source": "aplicativo/release-pmta-pdf-20261020/testes/pdf-modelos.test.cjs",
+      "sourceSha256": "42cf94dd1b7ca88e66b3405dd1088117336fa51fd476a1d304d9a5427985f302",
+      "adaptation": "Portable relative imports and JPEG from copied public site asset."
+    },
+    {
+      "path": "VALIDATION.json",
+      "bytes": 2075,
+      "sha256": "8d5c4bb5ae377f15da96ed9225b26cd558d44ed9953bac73c3355b2a3ad7e3fe",
+      "source": "Generated for portable handoff."
+    }
+  ]
+}
