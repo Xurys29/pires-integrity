@@ -1,0 +1,272 @@
+:root {
+  font:
+    16px system-ui,
+    sans-serif;
+  color: #18343f;
+  background: #eef3f5;
+  --blue: #123e53;
+  --gold: #d5aa40;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+header {
+  background: var(--blue);
+  color: white;
+  padding: 20px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+  border-bottom: 4px solid var(--gold);
+}
+header label {
+  margin-left: auto;
+}
+header input {
+  width: auto;
+}
+main {
+  max-width: 1350px;
+  margin: auto;
+  padding: 20px;
+}
+nav,
+.filters,
+.pager,
+.actions {
+  display: flex;
+  gap: 12px;
+  align-items: end;
+  flex-wrap: wrap;
+}
+.panel,
+.card {
+  padding: 20px;
+  background: white;
+  border: 1px solid #cad6dc;
+  border-radius: 12px;
+  margin: 16px 0;
+}
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(285px, 1fr));
+  gap: 14px;
+}
+.grid .card {
+  margin: 0;
+}
+h1,
+h2,
+h3 {
+  color: var(--blue);
+}
+label {
+  display: block;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  margin: 8px 0;
+}
+input,
+select,
+textarea,
+button {
+  font: inherit;
+  padding: 10px;
+  border: 1px solid #a6bac4;
+  border-radius: 6px;
+  max-width: 100%;
+}
+input,
+select,
+textarea {
+  display: block;
+  width: 100%;
+  background: white;
+  color: #173a49;
+}
+textarea {
+  min-height: 90px;
+}
+input[type="checkbox"] {
+  display: inline;
+  width: auto;
+}
+button {
+  cursor: pointer;
+  background: var(--blue);
+  color: white;
+  min-height: 44px;
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.secondary {
+  background: white;
+  color: var(--blue);
+}
+.notice {
+  background: #fff8df;
+  padding: 14px;
+  border-left: 4px solid var(--gold);
+}
+.error {
+  color: #9c2020;
+}
+.muted {
+  color: #536974;
+  font-size: 0.9rem;
+}
+dl {
+  display: grid;
+  grid-template-columns: minmax(100px, 1fr) 2fr;
+  gap: 8px;
+  font-size: 0.9rem;
+}
+dt {
+  font-weight: 600;
+}
+dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 0.8rem;
+  max-height: 400px;
+  overflow: auto;
+}
+.scroll {
+  overflow: auto;
+  max-height: 500px;
+}
+table {
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  width: 100%;
+}
+td,
+th {
+  padding: 8px;
+  text-align: left;
+  border: 1px solid #cad6dc;
+  white-space: pre-wrap;
+  min-width: 75px;
+}
+th {
+  background: #123e53;
+  color: white;
+  position: sticky;
+  top: 0;
+}
+.badge {
+  border-radius: 6px;
+  background: #edf2f5;
+  padding: 5px 8px;
+  display: inline-block;
+  font-size: 0.85rem;
+  margin: 4px;
+}
+.light {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  margin: 0 5px;
+  animation: pulse 1.5s infinite;
+}
+.green {
+  background: #167244;
+}
+.red {
+  background: #b02530;
+}
+.legend {
+  font-size: 0.85rem;
+}
+.metrics {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.metric {
+  background: #eef4f6;
+  padding: 14px;
+  border-radius: 8px;
+  min-width: 150px;
+}
+.metric strong {
+  display: block;
+  font-size: 1.6rem;
+}
+.book {
+  border-left: 4px solid var(--gold);
+  padding-left: 14px;
+}
+.formgrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 12px;
+}
+.formgrid label:has(textarea) {
+  grid-column: 1/-1;
+}
+details {
+  margin: 14px 0;
+}
+summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+svg {
+  width: 100%;
+  max-height: 260px;
+}
+dialog {
+  max-width: 95vw;
+  width: 850px;
+  border: 1px solid #879eab;
+  border-radius: 12px;
+}
+body.no-motion .light {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .light {
+    animation: none;
+  }
+}
+@keyframes pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+[hidden] {
+  display: none !important;
+}
+@media (max-width: 600px) {
+  main {
+    padding: 12px;
+  }
+  header {
+    gap: 8px;
+    padding: 14px;
+  }
+  .panel {
+    padding: 14px;
+  }
+  dl {
+    grid-template-columns: 1fr;
+  }
+  dd {
+    margin-bottom: 8px;
+  }
+  .filters > * {
+    width: 100%;
+  }
+}

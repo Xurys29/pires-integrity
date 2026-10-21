@@ -9,7 +9,10 @@ const port = Number(process.env.PORT || (kind === 'site' ? 3001 : 3000));
 const allowed = new Set(fs.readdirSync(root, {recursive:true}).filter(file => fs.statSync(path.join(root,file)).isFile()).map(file => file.replaceAll('\\','/')));
 const mime = {'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.png':'image/png','.jpg':'image/jpeg','.xml':'application/xml','.txt':'text/plain; charset=utf-8'};
 const policyHeaders = Object.fromEntries(fs.readFileSync(path.join(root,'_headers'),'utf8').split(/\r?\n/).filter(line => /^\s+[A-Za-z-]+:/.test(line)).map(line => { const colon=line.indexOf(':'); return [line.slice(0,colon).trim(),line.slice(colon+1).trim()]; }));
-http.createServer((req,res) => {
+if (kind === 'app') {
+ const {server} = require('./serve-assets.cjs').start({host,port,rootPage:'index.html'});
+ server.on('listening',()=>console.log(`Aplicativo e gestão privada iniciados na porta ${server.address().port}. Gestão: /gestao.html. Chave privada em /workspace/.pires-private/access-key (não compartilhar).`));
+} else http.createServer((req,res) => {
  for(const [name,value] of Object.entries(policyHeaders)) res.setHeader(name,value);
  if (!['GET','HEAD'].includes(req.method)) return res.writeHead(405).end();
  let route; try { route = decodeURIComponent(new URL(req.url,'http://localhost').pathname); } catch { return res.writeHead(400).end(); }

@@ -1,5 +1,10 @@
 # Pires Integrity — continuidade em ambiente de código na nuvem
 
+## Desenvolvimento de Gestão de Ativos
+
+A continuação de desenvolvimento na nuvem está documentada em [GESTAO-CLOUD.md](GESTAO-CLOUD.md). O servidor de teste agora disponibiliza cadastro privado em `/gestao.html`, com persistência SQLite fora da pasta pública. Não é implantação de produção. O restante deste README descreve a preparação histórica da cópia portátil.
+
+
 Esta pasta é uma cópia portátil preparada em 20/10/2026. O aplicativo vem exclusivamente da release `release-pmta-pdf-20261020/dist`, baseada no pacote de produção corrigido de 16/10. O site vem de `site-institucional/release-rodape-20261020/dist`, a versão com rodapé publicada em 20/10.
 
 ## Executar em Linux

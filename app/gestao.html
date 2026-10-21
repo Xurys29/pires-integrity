@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pires Integridade | Gestão de Ativos</title>
+    <link rel="stylesheet" href="gestao.css" />
+    <script src="nr13.js" defer></script>
+    <script src="gestao.js" defer></script>
+  </head>
+  <body>
+    <header>
+      <b>PIRES INTEGRIDADE</b><span>Gestão de Ativos · teste privado</span
+      ><label><input type="checkbox" id="reduceMotion" /> Sem animação</label
+      ><button id="logout" hidden>Sair</button>
+    </header>
+    <main>
+      <p><a href="calculadoras">Calculadoras e relatórios existentes</a></p>
+      <p class="notice">
+        Persistência em banco privado desta instância da nuvem. Sem conexão com
+        produção. Dados e anexos não são publicados junto ao site. Acesso único
+        de teste; não é um portal de clientes.
+      </p>
+      <p id="message" role="status" aria-live="polite"></p>
+      <section id="login" class="panel">
+        <h1>Acessar gestão privada</h1>
+        <p>
+          Use a chave disponível no terminal privado do ambiente, em
+          /workspace/.pires-private/access-key. Não envie a chave pelo chat.
+        </p>
+        <form id="loginForm">
+          <label
+            >Seu nome (histórico)<input
+              name="actor"
+              required
+              maxlength="160"
+              autocomplete="name" /></label
+          ><label
+            >Chave do ambiente<input
+              name="key"
+              type="password"
+              required
+              autocomplete="current-password" /></label
+          ><button>Entrar</button>
+        </form>
+      </section>
+      <div id="workspace" hidden>
+        <nav>
+          <label>Empresa<select id="company"></select></label
+          ><button id="newCompany">Cadastrar empresa com fonte</button
+          ><button id="importButton">Importar lista XLSX</button
+          ><button id="refresh">Atualizar</button>
+        </nav>
+        <section id="tools"></section>
+        <section id="contracts" class="panel"></section>
+        <section id="indicators" class="panel"></section>
+        <section id="systems" class="grid"></section>
+        <section class="panel">
+          <h2>Linhas e equipamentos</h2>
+          <div class="filters">
+            <label
+              >Busca por TAG ou segmento<input
+                id="search"
+                type="search" /></label
+            ><label>Unidade<select id="unitFilter"></select></label
+            ><label>Sistema<select id="systemFilter"></select></label
+            ><label>Tipo<select id="typeFilter"></select></label
+            ><label
+              >RTIs<select id="rtiFilter">
+                <option value="">Todas</option>
+                <option value="open">Com RTI aberta</option>
+                <option value="none">
+                  Sem RTI aberta (não significa aprovação)
+                </option>
+              </select></label
+            ><button id="newAsset">Cadastrar ativo</button>
+          </div>
+          <p class="legend">
+            <span class="light green"></span> Verde: apenas Em operação.
+            <span class="light red"></span> Vermelho: RTI aberta. Condição
+            técnica e prazos são independentes.
+          </p>
+          <div id="assets" class="grid"></div>
+          <div class="pager">
+            <button id="previous">Anterior</button><span id="pageLabel"></span
+            ><button id="next">Próxima</button>
+          </div>
+        </section>
+        <section id="detail" class="panel" hidden></section>
+      </div>
+    </main>
+  </body>
+</html>

@@ -10,7 +10,8 @@
     "start": "node scripts/serve.cjs app",
     "start:site": "node scripts/serve.cjs site",
     "test": "node --test tests/*.test.cjs",
-    "check": "node scripts/check.cjs"
+    "check": "node scripts/check.cjs",
+    "start:assets": "node scripts/serve-assets.cjs"
   },
   "dependencies": {
     "jspdf": "4.2.1"
