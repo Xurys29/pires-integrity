@@ -1072,6 +1072,7 @@
       [
         {
           key: "nrProfile",
+          empty: "Selecione conforme a fonte",
           label: "Tipo / perfil documentado",
           options: N.CATALOG.map((c) => [c.id, c.name]),
         },
@@ -1097,6 +1098,7 @@
         { key: "nrDiameter", label: "Diâmetro informado", required: false },
         {
           key: "nrDiameterUnit",
+          empty: "Selecione conforme a fonte",
           label: "Unidade de diâmetro",
           options: [
             ["mm", "mm"],
@@ -1106,6 +1108,7 @@
         { key: "nrVolume", label: "Volume", required: false },
         {
           key: "nrVolumeUnit",
+          empty: "Selecione conforme a fonte",
           label: "Unidade de volume",
           options: [
             ["m3", "m³"],
@@ -1119,6 +1122,7 @@
         },
         {
           key: "nrPressureUnit",
+          empty: "Selecione conforme a fonte",
           label: "Unidade da pressão",
           options: [
             ["kPa", "kPa"],
@@ -1128,6 +1132,7 @@
         },
         {
           key: "nrFluid",
+          empty: "Selecione conforme a fonte",
           label: "Fluido / perigos (fundamentar)",
           options: [
             ["other", "Outro (conferir perigos)"],
@@ -1723,7 +1728,12 @@
       [
         { key: "tag", label: "TAG" },
         { key: "systemId", label: "Unidade / sistema", options: systems },
-        { key: "type", label: "Tipo", options: Object.entries(types) },
+        {
+          key: "type",
+          label: "Tipo",
+          options: Object.entries(types),
+          empty: "Selecione o tipo documentado",
+        },
         {
           key: "source",
           label:
