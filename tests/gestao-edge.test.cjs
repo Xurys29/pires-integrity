@@ -19,6 +19,26 @@ const workbook = {
     { row: 1, values: ["Empresa fixture"] }, { row: 2, values: ["TAG-FIXTURE", null] },
   ] }],
 };
+
+test('execution Edge: exact owner routes and stable operation payload use user JWT without privileged client',async()=>{
+ const h=await setup();
+ for(const [route,action,payload] of [[`companies/${OWNER}/execution`,'execution.list',{ownerId:OWNER}],[`companies/${OWNER}/execution/${ASSET}`,'execution.get',{ownerId:OWNER,inspectionId:ASSET}]]){
+  const result=await h.send(route);assert.equal(result.status,200);
+  assert.deepEqual(h.events.findLast(e=>e.args?.p_action===action).args.p_payload,payload);
+ }
+ for(const verb of ['assign','start','save','submit']){
+  const payload={ownerId:OTHER,inspectionId:ASSET,requestId:OTHER,expectedVersion:3};
+  const result=await h.send(`companies/${OWNER}/execution-${verb}`,{body:payload});assert.equal(result.status,200);
+  assert.deepEqual(h.events.findLast(e=>e.args?.p_action==='execution.'+verb).args.p_payload,{...payload,ownerId:OWNER});
+ }
+ assert.equal(h.serviceCount(),0);
+ const readonly=await setup({grant:{write:false,role:'inspector'}});
+ assert.equal((await readonly.send(`companies/${OWNER}/execution`)).status,200);
+ assert.equal((await readonly.send(`companies/${OWNER}/execution-start`,{body:{inspectionId:ASSET,requestId:OTHER}})).status,403);
+ assert.equal(readonly.events.some(e=>e.args?.p_action==='execution.start'),false);
+ const denied=await setup({rpc:async()=>({error:{code:'42501'}})});
+ assert.equal((await denied.send(`companies/${OWNER}/execution/${ASSET}`)).status,403);
+});
 async function setup(options = {}) {
   const { createGestaoHandler } = await import("../supabase/functions/_shared/gestao-api-core.mjs");
   const events = [], files = new Map();
@@ -205,7 +225,7 @@ test("status sem tenant também exige par piloto SQL e tenants expõe somente pa
   });
   const status = await h.send("status");
   assert.equal(status.status, 200);
-  assert.deepEqual(status.data.capabilities, { workflowVersion: 2, xlsx: true, pdf: false, xls: false, operations: true, documentOriginals: true, photoOriginals: true, xlsxMaxBytes: 8 * 1024 * 1024, documentMaxBytes: 32 * 1024 * 1024, photoMaxBytes: 8 * 1024 * 1024, write: false });
+  assert.deepEqual(status.data.capabilities, { workflowVersion: 2, inspectionExecutionVersion: 1, xlsx: true, pdf: false, xls: false, operations: true, documentOriginals: true, photoOriginals: true, xlsxMaxBytes: 8 * 1024 * 1024, documentMaxBytes: 32 * 1024 * 1024, photoMaxBytes: 8 * 1024 * 1024, write: false });
   assert.equal(status.data.pilot, true);
   assert.equal(status.data.user_id, USER);
   assert.deepEqual(h.events.filter(e => e.kind === "userRpc").map(e => [e.name, e.args?.p_tenant]), [

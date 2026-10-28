@@ -6,12 +6,12 @@
   "use strict";
   const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
   const modules = Object.freeze({
-    integridade: { name: "Inspeção de Integridade", description: "Sistemas, TAGs, itens da LVT, fotos e recomendações documentadas.", views: [["sistemas", "Sistemas e TAGs"], ["contratos", "Contratos e escopos"], ["ativos", "Linhas e ativos"], ["campanhas", "Campanhas de inspeção"], ["lvt", "LVT e relatório visual"], ["espessura", "Medição de espessura"], ["achados", "Achados e RTIs"], ["relatorios", "Relatórios de integridade"]] },
+    integridade: { name: "Inspeção de Integridade", description: "Sistemas, TAGs, itens da LVT, fotos e recomendações documentadas.", views: [["sistemas", "Sistemas e TAGs"], ["minhas", "Minhas inspeções"], ["contratos", "Contratos e escopos"], ["ativos", "Linhas e ativos"], ["campanhas", "Campanhas de inspeção"], ["lvt", "LVT e relatório visual"], ["espessura", "Medição de espessura"], ["achados", "Achados e RTIs"], ["relatorios", "Relatórios de integridade"]] },
     rtis: { name: "Gestão de RTI", description: "Uma mesma RTI acompanha o achado de origem, o prazo e as ações.", views: [["contratos", "Contratos e escopos"], ["campanhas", "Campanhas de RTI"], ["fila", "RTIs abertas e histórico"], ["detalhe", "Estrutura da RTI"], ["acoes", "Ações e reinspeção"], ["relatorios", "Relatório de RTI"]] },
     nr13: { name: "Gestão NR-13", description: "Enquadramento automático com dados documentados, prazos e book do ativo.", views: [["contratos", "Contratos e escopos"], ["ativos", "Ativos e enquadramento"], ["book", "Book NR-13"], ["inspecoes", "Inspeções e próximos prazos"], ["documentos", "Documentação NR-13"], ["relacoes", "Relações entre ativos e documentos"]] },
     valvulas: { name: "Gestão de Certificação de Válvulas", description: "Cadastro próprio de válvulas e PSVs, campanhas e certificados.", views: [["contratos", "Contratos e escopos"], ["ativos", "Válvulas e PSVs"], ["campanhas", "Campanhas de certificação"], ["certificados", "Certificados e revisões"], ["historico", "Histórico da válvula"]] },
   });
-  const views = new Set(["inicio", "painel", "importar", "planejamento", "sistemas", "item", "contratos", "escopo", "ativos", "campanhas", "lvt", "espessura", "achados", "relatorios", "fila", "detalhe", "acoes", "book", "inspecoes", "documentos", "relacoes", "certificados", "historico", "registros"]);
+  const views = new Set(["inicio", "painel", "importar", "planejamento", "sistemas", "minhas", "execucao", "item", "contratos", "escopo", "ativos", "campanhas", "lvt", "espessura", "achados", "relatorios", "fila", "detalhe", "acoes", "book", "inspecoes", "documentos", "relacoes", "certificados", "historico", "registros"]);
   function routeHash(clientId, module = "", view = "inicio", itemId = "_", contractId = "") {
     return "#gestao/" + [clientId || "_", module || "modulos", view, itemId || "_"].map(encodeURIComponent).join("/") + (contractId ? "?contrato=" + encodeURIComponent(contractId) : "");
   }
@@ -22,7 +22,7 @@
       const [, clientId, module, view, itemId] = parts, contractId = new URLSearchParams(query).get("contrato") || "";
       if (clientId !== "_" && !UUID.test(clientId) || itemId !== "_" && !UUID.test(itemId) || contractId && !UUID.test(contractId)) return null;
       if (module !== "modulos" && !Object.hasOwn(modules, module) || !views.has(view)) return null;
-      if (module === "modulos" ? view !== "inicio" : !["inicio", "painel", "importar", "planejamento", "book", "registros", "escopo", "historico"].includes(view) && !(module === "integridade" && view === "item") && !modules[module].views.some(([key]) => key === view)) return null;
+      if (module === "modulos" ? view !== "inicio" : !["inicio", "painel", "importar", "planejamento", "book", "registros", "escopo", "historico"].includes(view) && !(module === "integridade" && ["item", "execucao"].includes(view)) && !modules[module].views.some(([key]) => key === view)) return null;
       return { clientId, module: module === "modulos" ? "" : module, view, itemId, contractId };
     } catch { return null; }
   }
@@ -48,6 +48,7 @@
       breadcrumb = options.breadcrumb, back = options.back, legacy = options.legacy;
     let contextKey = "", current = null, previousRoute = "";
     const projects = root.PiresGestaoProjects?.create({...options, onProjectNavigate: navigate});
+    const inspections = root.PiresGestaoInspection?.create({...options, onInspectionNavigate: navigate});
     const el = (tag, text, className) => {
       const node = document.createElement(tag);
       if (text !== undefined) node.textContent = text;
@@ -253,6 +254,7 @@
       } else notice(evidence, "Link documental seguro não disponível. A referência será preservada para conferência.");
     }
     function showAssets(module) {
+      if (module === "integridade" && inspections?.renderAssetList(container, current)) return;
       container.append(el("h1", modules[module].views.find(([view]) => view === "ativos")?.[1] || "Ativos do módulo"));
       const contract = contracts(module).find((item) => item.id === current.contractId);
       const system = records("system").find((r) => r.id === current.itemId);
@@ -434,7 +436,7 @@
     function showRtis(itemId) {
       const state = data(), validAssets = new Map(assets().map((asset) => [asset.id, asset])),
         project = contracts("rtis").find(c => c.id === current.contractId),
-        list = (state.rti || []).filter((rti) => (!rti.assetId || validAssets.has(rti.assetId)) && (!project || (project.rtiIds || []).includes(rti.id)));
+        list = (state.rti || []).filter((rti) => (!rti.assetId || validAssets.has(rti.assetId)) && (!project || (project.rtiIds || []).includes(rti.id) || rti.contractId === project.id && (project.assetIds || []).includes(rti.assetId)));
       if (["fila", "inicio", "acoes"].includes(current.view) && itemId === "_") {
         container.append(el("h1", "RTIs abertas e histórico"));
         notice(container, "A RTI documentada acompanha a origem com o mesmo ID, sem cópia. Várias RTIs da mesma TAG permanecem separadas. A situação histórica da fonte não confirma que a RTI continua aberta hoje; vínculos não confirmados permanecem pendentes.");
@@ -734,10 +736,11 @@
 
       if (current.module) { breadcrumb.append(el("span", "/")); link(breadcrumb, modules[current.module].name, current.module, "inicio", "_", ""); }
       if (current.contractId) { const project = contracts(current.module).find(c => c.id === current.contractId); breadcrumb.append(el("span", "/")); link(breadcrumb, project?.name || "Projeto", current.module, "painel", "_", current.contractId); }
-      if (current.module && current.view !== "inicio") breadcrumb.append(el("span", " / " + (modules[current.module].views.find(([key]) => key === current.view)?.[1] || (current.view === "painel" ? "Painel" : current.view === "importar" ? "Importação" : current.view === "planejamento" ? "Planejamento" : current.view === "book" ? "Book do ativo" : current.view === "escopo" ? "Escopo do contrato" : "Consulta do registro"))));
+      if (current.module && current.view !== "inicio") breadcrumb.append(el("span", " / " + (modules[current.module].views.find(([key]) => key === current.view)?.[1] || (current.view === "execucao" ? "Execução da inspeção" : current.view === "painel" ? "Painel" : current.view === "importar" ? "Importação" : current.view === "planejamento" ? "Planejamento" : current.view === "book" ? "Book do ativo" : current.view === "escopo" ? "Escopo do contrato" : "Consulta do registro"))));
       back.hidden = !current.module;
       back.onclick = () => {
         if (current.view === "inicio") navigate("", "inicio", "_", "");
+        else if (current.module === "integridade" && current.view === "execucao") navigate("integridade", "minhas", "_", current.contractId);
         else if (current.contractId && ["painel", "importar", "planejamento", "sistemas", "campanhas", "relatorios"].includes(current.view)) navigate(current.module, current.view === "painel" ? "inicio" : "painel", "_", current.view === "painel" ? "" : current.contractId);
         else if (current.module === "integridade" && current.view === "item") { const item = records("lvtItem").find((r) => r.id === current.itemId); navigate("integridade", "lvt", item?.assetId || "_", current.contractId); }
         else if (current.module === "integridade" && current.view === "lvt" && current.itemId !== "_") { const asset = assets().find((a) => a.id === current.itemId); navigate("integridade", "ativos", asset?.systemId || "_", current.contractId); }
@@ -748,7 +751,8 @@
         else if (current.view === "achados" && current.itemId !== "_") navigate(current.module, "achados", "_", current.contractId);
         else navigate(current.module, "inicio", "_", "");
       };
-      if (projects?.render(container,current)) { /* Project screens own their content. */ }
+      if (inspections?.render(container, current)) { /* Dedicated execution and assignment screens. */ }
+      else if (projects?.render(container,current)) { /* Project screens own their content. */ }
       else if (!current.module) showModules();
       else if (current.view === "inicio") showModule(current.module);
       else if (["contratos", "escopo"].includes(current.view)) showContracts(current.module, current.itemId);
@@ -762,6 +766,9 @@
         else for (const id of ["contracts", "indicators"]) document.getElementById(id).hidden = false;
         notice(container, "Registros já existentes do ambiente privado. Os novos processos e campanhas continuam separados desta consulta.");
       } else if (!showOperational(current.module, current.view, current.itemId)) showPlanned(current.module, current.view, current.itemId);
+      if (inspections?.enabled() && current.module === "integridade" && !["minhas", "execucao", "ativos", "lvt"].includes(current.view)) {
+        const navigation = el("nav", undefined, "inspection-toolbar"); link(navigation, "Minhas inspeções", "integridade", "minhas", "_", current.contractId); container.prepend(navigation);
+      }
       if (previousRoute !== root.location.hash) { previousRoute = root.location.hash; root.scrollTo?.(0, 0); container.focus?.({ preventScroll: true }); }
     }
     root.addEventListener("hashchange", render);

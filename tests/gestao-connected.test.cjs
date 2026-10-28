@@ -105,6 +105,26 @@ test("empresa de acesso é separada da dona dos ativos e necessária antes de co
   assert.equal(requests.length, 2);
 });
 
+test("execução usa rotas próprias com JWT/tenant e preserva leitura versus gravação", async () => {
+  const { adapter, requests } = setup();
+  adapter.setTenant(tenantA);
+  const base = "companies/" + ownerCompany + "/execution";
+  await adapter.request(base);
+  await adapter.request(base + "/" + userId);
+  for (const action of ["assign", "start", "save", "submit"])
+    await adapter.request(base + "-" + action, { inspectionId: userId });
+  assert.deepEqual(requests.map(r => r.method), ["GET", "GET", "POST", "POST", "POST", "POST"]);
+  for (const request of requests) {
+    const headers = new Headers(request.headers);
+    assert.equal(headers.get("X-Pires-Tenant"), tenantA);
+    assert.equal(headers.get("Authorization"), "Bearer fixture-user-jwt");
+    assert.ok(request.url.includes("/companies/" + ownerCompany + "/execution"));
+  }
+  await assert.rejects(adapter.request(base + "-start"), error => error.code === "unsupported_operation");
+  await assert.rejects(adapter.request(base + "-unknown", {}), error => error.code === "unsupported_operation");
+  assert.equal(requests.length, 6);
+});
+
 test("login reutiliza auth existente e logout remove a empresa de acesso", async () => {
   const { adapter, authCalls, requests } = setup({ token: null });
   await assert.rejects(adapter.request("status"), error => error.status === 401 && error.code === "auth_required");

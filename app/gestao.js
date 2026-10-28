@@ -2206,6 +2206,9 @@
       await load().catch(error => msg(error.message, true));
     },
     onOperation: (parent, operation, defaults) => operational?.render(parent, operation, defaults),
+    onInspectionRequest: (operation, body) => api(path(operation), body),
+    onInspectionRefresh: refresh,
+    onInspectionPhoto: (file) => connected.uploadPhoto(file),
     onProjectRequest: (operation, body) => { msg(""); return api(path(operation), body); },
     onProjectRefresh: refresh,
     async onProjectUpload(file) {

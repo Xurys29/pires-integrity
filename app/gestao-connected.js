@@ -5,8 +5,8 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, function (root) {
   "use strict";
   const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  const READ = /^(status|tenants|companies|companies\/[a-f0-9-]{36}\/(state|history\/[a-f0-9-]{36}|book\/[a-f0-9-]{36}|reports\/(system|campaign)\/[a-f0-9-]{36}|sources\/[a-z0-9-]+))$/i;
-  const WRITE = /^(companies|sources(?:\/reference)?|import\/(preview|commit)|companies\/[a-f0-9-]{36}\/(hierarchy|assets|contracts|campaigns|inspections|lvts|lvt-items|photos|findings|rtis|documents|relationships|field-lvts|field-items|rti-updates|inspection-updates|asset-register|asset-operation|asset-links|measurements|certificates|classifications|nr13-assess|perenco-line-list|perenco-tq-book|deadlines|project-create|project-update|project-preview|project-scope|project-plan|project-event|project-snapshot|project-snapshot-get))$/i;
+  const READ = /^(status|tenants|companies|companies\/[a-f0-9-]{36}\/(state|history\/[a-f0-9-]{36}|book\/[a-f0-9-]{36}|reports\/(system|campaign)\/[a-f0-9-]{36}|sources\/[a-z0-9-]+|execution(?:\/[a-f0-9-]{36})?))$/i;
+  const WRITE = /^(companies|sources(?:\/reference)?|import\/(preview|commit)|companies\/[a-f0-9-]{36}\/(hierarchy|assets|contracts|campaigns|inspections|lvts|lvt-items|photos|findings|rtis|documents|relationships|field-lvts|field-items|execution-(assign|start|save|submit)|rti-updates|inspection-updates|asset-register|asset-operation|asset-links|measurements|certificates|classifications|nr13-assess|perenco-line-list|perenco-tq-book|deadlines|project-create|project-update|project-preview|project-scope|project-plan|project-event|project-snapshot|project-snapshot-get))$/i;
   function failure(message, code, status) {
     const error = new Error(message);
     error.code = code;
