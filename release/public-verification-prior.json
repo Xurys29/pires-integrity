@@ -1,0 +1,426 @@
+{
+  "checked_at": "2026-10-28T19:43:24.177Z",
+  "results": [
+    {
+      "path": "assets/pires-brand.js",
+      "status": 200,
+      "bytes": 735541,
+      "sha256": "ba9e00d7f91c2bb30d49e49263cd64389331162278e04410c13cad3e9480910e",
+      "match": true
+    },
+    {
+      "path": "assets/pires-logo-original.jpeg",
+      "status": 200,
+      "bytes": 28850,
+      "sha256": "1a30b677bef9714a42abae60a7f892595f6bce5c6a5bf4664c3022f4ddc97395",
+      "match": true
+    },
+    {
+      "path": "assets/Poppins-Bold.ttf",
+      "status": 200,
+      "bytes": 155996,
+      "sha256": "983676516167748b74de6f4771fb384c664fd913acb8b471122ecacf5da5ea6c",
+      "match": true
+    },
+    {
+      "path": "assets/Poppins-OFL.txt",
+      "status": 200,
+      "bytes": 4385,
+      "sha256": "6be04893d770899a015649c7aa3b582f871b272f8747a92b78b17c3e5c8b2573",
+      "match": true
+    },
+    {
+      "path": "assets/Rubik-OFL.txt",
+      "status": 200,
+      "bytes": 4384,
+      "sha256": "472cbe7c25441df63e9c7864b43eb3c0f4b3df950c66a76224e6cfe1eae843fb",
+      "match": true
+    },
+    {
+      "path": "assets/Rubik-Variable.ttf",
+      "status": 200,
+      "bytes": 359804,
+      "sha256": "1b3a7437ba2af80e465e773ed60c5036d1ba6ace492d89046dbcf18fb31e4e88",
+      "match": true
+    },
+    {
+      "path": "vendor/pdf.js",
+      "status": 200,
+      "bytes": 818583,
+      "sha256": "d02aeff38ff5e8a02a7a69d904cb00f4f008432c8463ff443710920a11710f20",
+      "match": true
+    },
+    {
+      "path": "vendor/supabase.js",
+      "status": 200,
+      "bytes": 222834,
+      "sha256": "24cfd1e0576aa77b0411a2501fec779546f7ce472866846e7c5d03e211cecd18",
+      "match": true
+    },
+    {
+      "path": "404.html",
+      "status": 200,
+      "bytes": 161,
+      "sha256": "980af0e2a6a51c81bd99cc7c72c01357dca8e5e0aa8d0e2d2d778cc868b7c360",
+      "match": true
+    },
+    {
+      "path": "access-policy.js",
+      "status": 200,
+      "bytes": 5397,
+      "sha256": "281a0720d1de8027ce3c994ba3f5111d8aebdc7eea0d1fcc3b3cc0e9449d7119",
+      "match": true
+    },
+    {
+      "path": "account-ui.js",
+      "status": 200,
+      "bytes": 32799,
+      "sha256": "cfd7b076cd90a560262cd708a7ba9a1171caebdb7f18833f23446289c4d61da8",
+      "match": true
+    },
+    {
+      "path": "admin-ui.js",
+      "status": 200,
+      "bytes": 29110,
+      "sha256": "8c7bbee412d81cc39ed80ec102a6a5162fe2e365b4af99f7e2a86d431a48793a",
+      "match": true
+    },
+    {
+      "path": "admin.css",
+      "status": 200,
+      "bytes": 5770,
+      "sha256": "2a2028a1db4eef39ead9e09bdd6beebc41937e87a9a635fac543b7fe7c0f1487",
+      "match": true
+    },
+    {
+      "path": "admin.html",
+      "status": 200,
+      "bytes": 6427,
+      "sha256": "95fe93e1c28b784a5ebe53d339019ed6e4bb9aa15568420018acf74646d8cabc",
+      "match": true
+    },
+    {
+      "path": "app.js",
+      "status": 200,
+      "bytes": 27033,
+      "sha256": "9ff9362872efbe49b2d0549b39556f783e964ef261e5df237aa5693221338c1a",
+      "match": true
+    },
+    {
+      "path": "calculations.js",
+      "status": 200,
+      "bytes": 16797,
+      "sha256": "de97854f8c397639ef8fac9376040225ad5c7bd8d95d3ac724eeaae495c370a9",
+      "match": true
+    },
+    {
+      "path": "calculator-pdf.js",
+      "status": 200,
+      "bytes": 38508,
+      "sha256": "521d1cf8ef74d6adade8329ed743fcb6a42e213d1aa588c99fff197ec182f4ef",
+      "match": true
+    },
+    {
+      "path": "calculator-report-ui.js",
+      "status": 200,
+      "bytes": 11301,
+      "sha256": "a27c004b451e517952c5dc986fed1c46f3e0b40d4ccf9db82b8a1bf55964010d",
+      "match": true
+    },
+    {
+      "path": "cloud.js",
+      "status": 200,
+      "bytes": 27939,
+      "sha256": "1dd3fa5516a86aa7d9bf53800f4cb011aa12d8a5560a719edf658d5c516e4b45",
+      "match": true
+    },
+    {
+      "path": "construction-code.js",
+      "status": 200,
+      "bytes": 4957,
+      "sha256": "9d74d1b6018b4140c4708d4a8ae17303d863eefd34af558df46d6d7e52fce831",
+      "match": true
+    },
+    {
+      "path": "gestao-asset-cards.js",
+      "status": 200,
+      "bytes": 12854,
+      "sha256": "205bcde22f440d95e6da33199ac7cc69e7e958c53428a1d918270cc6dfdb0c81",
+      "match": true
+    },
+    {
+      "path": "gestao-connected.js",
+      "status": 200,
+      "bytes": 12621,
+      "sha256": "dc4bc230e09019bdf92118cfb2c3abfc0bd881df1b9e444a36b5a1b247100dc6",
+      "match": true
+    },
+    {
+      "path": "gestao-design.css",
+      "status": 200,
+      "bytes": 17544,
+      "sha256": "44fac435defbd20d2b2fbed8cbdd2386912755024ca6980c0ad7eaabd32add7b",
+      "match": true
+    },
+    {
+      "path": "gestao-entry.js",
+      "status": 200,
+      "bytes": 2613,
+      "sha256": "a37aa1c7adfba3ed405820b442af035353506ee20a2c01d966a971f3bf6f80df",
+      "match": true
+    },
+    {
+      "path": "gestao-operations.js",
+      "status": 200,
+      "bytes": 20960,
+      "sha256": "c9d983e55854a8b5e6ed21ecdddf90a409c97dcfbea641d3b9b087a71f0b8541",
+      "match": true
+    },
+    {
+      "path": "gestao-report-pdf.js",
+      "status": 200,
+      "bytes": 24494,
+      "sha256": "df436debf82b73a78b2eede7b4f03f6b3b1f971a69ca47e22848da38662a6616",
+      "match": true
+    },
+    {
+      "path": "gestao-workflow.js",
+      "status": 200,
+      "bytes": 15997,
+      "sha256": "3e682c4256a4bae2d5b9d0265e47420380d79d375ff1058daf15b74a49117264",
+      "match": true
+    },
+    {
+      "path": "gestao.css",
+      "status": 200,
+      "bytes": 7306,
+      "sha256": "5d6f19abea341680f457ba6db1272865cb0976c04febd0c2918127a4ba64821e",
+      "match": true
+    },
+    {
+      "path": "gestao.html",
+      "status": 200,
+      "bytes": 6847,
+      "sha256": "6bee409fa7bbd4f7adc990f2ef3bb1a746ad72d681348650ff36eacadc019bf8",
+      "match": true
+    },
+    {
+      "path": "gestao.js",
+      "status": 200,
+      "bytes": 86203,
+      "sha256": "12b8798c9dd97f53e8b4856426d2ce0ad3c0974f3aa2aae9ad9ca8fc025d8ea2",
+      "match": true
+    },
+    {
+      "path": "index.html",
+      "status": 200,
+      "bytes": 29554,
+      "sha256": "91a7ee172d35fffc77f38d858d14ebb20697b0aef0b59250a24892200a986e29",
+      "match": true
+    },
+    {
+      "path": "me-batch.js",
+      "status": 200,
+      "bytes": 8647,
+      "sha256": "4735d0789ec64f33f2b658d330c16f64b639bb3f7b66ff0925e010e9bb04a432",
+      "match": true
+    },
+    {
+      "path": "me-pdf.js",
+      "status": 200,
+      "bytes": 30335,
+      "sha256": "ffb52ea1f4527481b494d2e1fb12861e750b623b67f555dc3224038a4cd01e68",
+      "match": true
+    },
+    {
+      "path": "me-risk.js",
+      "status": 200,
+      "bytes": 9229,
+      "sha256": "995dd2a2952bdab38eb41d5db7b1b10626dfd8f711c5235ac7eb1fe8320c4776",
+      "match": true
+    },
+    {
+      "path": "me-ui.js",
+      "status": 200,
+      "bytes": 29175,
+      "sha256": "07b111c11e34d77e546ade2cddd4a1e25aaa3f55b4cfb83ae2b1d3632abf0c98",
+      "match": true
+    },
+    {
+      "path": "me.css",
+      "status": 200,
+      "bytes": 2978,
+      "sha256": "3e62b3b0622658337eac2e8dc1390a0fbdbcf14b391fcf00a4a081f7cd9f7158",
+      "match": true
+    },
+    {
+      "path": "me.html",
+      "status": 200,
+      "bytes": 5091,
+      "sha256": "d8527f42a57cdfb63db6a21d185bbba60cc7b17f81bf12045fd4c9fd343a3338",
+      "match": true
+    },
+    {
+      "path": "nr13-pdf.js",
+      "status": 200,
+      "bytes": 28809,
+      "sha256": "8cc9415a2b7e191ffc42bdf3a759851f74ff33b5c1b7be04c782fccdfbc55f83",
+      "match": true
+    },
+    {
+      "path": "nr13-ui.js",
+      "status": 200,
+      "bytes": 11714,
+      "sha256": "064a5b44f9c2cdc9152d8f050df5a4b472ea7e24628a07ba1c832e4ab2c5b6e2",
+      "match": true
+    },
+    {
+      "path": "nr13.js",
+      "status": 200,
+      "bytes": 22548,
+      "sha256": "ff5db60c5da8643b95d2482146254518c727f4b56e15afbe5a33169ae6e51a4b",
+      "match": true
+    },
+    {
+      "path": "report-signatures.css",
+      "status": 200,
+      "bytes": 1398,
+      "sha256": "8418aa257b250a686cc39a4e035327f3494ce135478c907fff0175f8460646ee",
+      "match": true
+    },
+    {
+      "path": "report-signatures.js",
+      "status": 200,
+      "bytes": 13068,
+      "sha256": "ead4b04c4b50db6f4b1dc295d11d0cf503b8a6876d452269a86d41f782ec56ce",
+      "match": true
+    },
+    {
+      "path": "risk-ui.js",
+      "status": 200,
+      "bytes": 9885,
+      "sha256": "5f53115eaaba2bb4b06e96e15e46ec631799fbd771eb2cad024c553c7779ff13",
+      "match": true
+    },
+    {
+      "path": "risk.css",
+      "status": 200,
+      "bytes": 1464,
+      "sha256": "d94f296e4442eab3078e6a617614a82d9916d14ce2ecd893c4d503deade201be",
+      "match": true
+    },
+    {
+      "path": "risk.js",
+      "status": 200,
+      "bytes": 7207,
+      "sha256": "04474a44154e9fad1656a8263d861634cd2b73b0868dda04285d566bb33bba1f",
+      "match": true
+    },
+    {
+      "path": "runtime-config.js",
+      "status": 200,
+      "bytes": 461,
+      "sha256": "aec635997c8e6f0ddce2fd14c1d287a9c9b58a6b8860d34f6eaa89a21beb1030",
+      "match": true
+    },
+    {
+      "path": "styles.css",
+      "status": 200,
+      "bytes": 11417,
+      "sha256": "7b351be5366b6376d8242bb956a7a0e10c0c4f6ed8f05cd055c282f753c12bf4",
+      "match": true
+    },
+    {
+      "path": "gestao-flow.js",
+      "status": 200,
+      "bytes": 79175,
+      "sha256": "d29002d8add600dad9781d2c10f593bcd7b3e6d5ea2d8ccb65c5090b56ea6785",
+      "match": true
+    },
+    {
+      "path": "gestao-project-model.js",
+      "status": 200,
+      "bytes": 11456,
+      "sha256": "efb4c23081827294f6bc41d1f98ecacbfd566c5d743f9e670a2e08f536042650",
+      "match": true
+    },
+    {
+      "path": "gestao-projects.js",
+      "status": 200,
+      "bytes": 27667,
+      "sha256": "391ea55a6ec40307fae5bace2e703e5b0130623845261b927f38673632c76409",
+      "match": true
+    },
+    {
+      "path": "gestao-project-pdf.js",
+      "status": 200,
+      "bytes": 6078,
+      "sha256": "882490b7bffa5d598754f64d8f38f93d3dca656dd1dd86311f2659bdf836a0ec",
+      "match": true
+    },
+    {
+      "path": "gestao-projects.css",
+      "status": 200,
+      "bytes": 4874,
+      "sha256": "395f81b202e48db77b7e1c4eb2607fe807882bbe6353bfc8cc44f8e3af62fc85",
+      "match": true
+    },
+    {
+      "path": "equipe-api.js",
+      "status": 200,
+      "bytes": 3149,
+      "sha256": "2225bba9d648f574ddf9f864bb14e63908f11d1b7b75d0b9879eee1bcd49ffcc",
+      "match": true
+    },
+    {
+      "path": "equipe-model.js",
+      "status": 200,
+      "bytes": 3218,
+      "sha256": "aefffa3b6dcfce92a5c5904e4a52f0a8609b166370a8c12658e62dcd200ddedf",
+      "match": true
+    },
+    {
+      "path": "equipe.html",
+      "status": 200,
+      "bytes": 2052,
+      "sha256": "7b633cf3cc7857fdf371d3d0c1ec67cfa5c5b1fab30cf4a2e1bb63a94ec71f90",
+      "match": true,
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src https://seosxvydjvsulhcpljyy.supabase.co; img-src 'self' data: blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    },
+    {
+      "path": "equipe.css",
+      "status": 200,
+      "bytes": 7355,
+      "sha256": "fcd7c1a22bea6e5ebaf911acd1d9ffd348cc23b39039d1554d1bdba1596b3f74",
+      "match": true
+    },
+    {
+      "path": "equipe.js",
+      "status": 200,
+      "bytes": 27722,
+      "sha256": "4cfed1529ab32cbb414a1712bc1edd6e94b4cb9f594433a483dfd9f36324c2b2",
+      "match": true
+    },
+    {
+      "path": "gestao-inicio.html",
+      "status": 200,
+      "bytes": 2527,
+      "sha256": "eec5a74a93695f4ec0e77cc1590f65bc966a84185bb616c170ff2780a0d5f1d5",
+      "match": true
+    },
+    {
+      "path": "gestao-inicio.js",
+      "status": 200,
+      "bytes": 894,
+      "sha256": "533175ed32354c0427a4e76f5a9716b5680acc03b4d19dd9f94ae68f78f71bdd",
+      "match": true
+    },
+    {
+      "path": "gestao-root.js",
+      "status": 200,
+      "bytes": 206,
+      "sha256": "ceecc808f0411b1a7e21a83c49e5f60f92a1528cb21cfb290a2961eaa09ec704",
+      "match": true
+    }
+  ]
+}

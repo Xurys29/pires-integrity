@@ -1,0 +1,50 @@
+[
+  {
+    "slug": "access-admin",
+    "version": 6,
+    "verify_jwt": true,
+    "bundle_sha256": "4a89fe306c81ddc807c18eef5d70c6aa3f09b7d585bdc0574cbeaa4ec2af6392",
+    "updated_at": "2026-10-16T14:08:11.920Z",
+    "source_verified_by_download": true
+  },
+  {
+    "slug": "billing-account",
+    "version": 3,
+    "verify_jwt": true,
+    "bundle_sha256": "d1974732e965a3b55a110da86a854f871133f09d069a9a534ff763528b0b7961",
+    "updated_at": "2026-10-16T21:57:39.477Z",
+    "source_verified_by_download": true
+  },
+  {
+    "slug": "billing-reconcile",
+    "version": 3,
+    "verify_jwt": true,
+    "bundle_sha256": "a99f6e813f5ccff8cb709bf8930ca2aadefed6ff9595d908c4fd73547ad3835e",
+    "updated_at": "2026-10-16T21:58:03.496Z",
+    "source_verified_by_download": true
+  },
+  {
+    "slug": "asaas-webhook",
+    "version": 3,
+    "verify_jwt": false,
+    "bundle_sha256": "9d0ad1e05c7da7bd098530950e1f01cb126d47787f467e9f0d61aa718ae63c9e",
+    "updated_at": "2026-10-16T21:58:10.725Z",
+    "source_verified_by_download": true
+  },
+  {
+    "slug": "gestao-api",
+    "version": 6,
+    "verify_jwt": true,
+    "bundle_sha256": "6d3371e134c39f0ce693084d91fcd07173ed4c66f69636ad72f9a6d837007274",
+    "updated_at": "2026-10-27T21:18:06.995Z",
+    "source_verified_by_download": false
+  },
+  {
+    "slug": "team-exercise-provision",
+    "version": 2,
+    "verify_jwt": true,
+    "bundle_sha256": "4afb8caf926e556331e7248c128826a032e508a05576928c1ebc5f1593975845",
+    "updated_at": "2026-10-28T17:44:36.164Z",
+    "source_verified_by_download": true
+  }
+]

@@ -1,19 +1,29 @@
 {
-  "name": "pires-integrity-cloud-handoff",
-  "version": "0.6.0-pdf.20261020",
+  "name": "pires-integrity",
+  "version": "0.8.0-equipe.20261028",
   "private": true,
-  "description": "Portable demo snapshot for continuing the authorized PDF work. No production configuration.",
+  "description": "Pires Integrity com Gestão de Ativos privada e persistente, calculadoras e relatórios preservados.",
   "engines": {
     "node": ">=24"
   },
   "scripts": {
-    "start": "node scripts/serve.cjs app",
+    "start": "node scripts/serve-current.cjs",
     "start:site": "node scripts/serve.cjs site",
-    "test": "node --test tests/*.test.cjs",
+    "test": "node --test --test-concurrency=2 tests/*.test.cjs",
     "check": "node scripts/check.cjs",
-    "start:assets": "node scripts/serve-assets.cjs"
+    "start:assets": "node scripts/serve-assets.cjs",
+    "prepare": "node scripts/prepare-local.cjs",
+    "pretest": "node scripts/prepare-local.cjs",
+    "verify:release": "node scripts/verify-release.cjs",
+    "test:team": "node scripts/prepare-local.cjs && node --test tests/team-*.test.cjs"
   },
   "dependencies": {
+    "fast-xml-parser": "5.11.2",
+    "fflate": "0.8.3",
     "jspdf": "4.2.1"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.12",
+    "supabase": "2.122.0"
   }
 }

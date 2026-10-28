@@ -1,6 +1,6 @@
 (function(root,factory){const api=factory(typeof module==='object'&&module.exports?require('./report-signatures.js'):root.PiresReportSignatures);if(typeof module==='object'&&module.exports)module.exports=api;else root.PiresMEPDF=api;})(globalThis,function(Signatures){
   'use strict';
-  const VERSION='1.4.0';
+  const VERSION='1.3.1';
   const SNAPSHOT_SCHEMA='pires-me-pdf-snapshot-v1';
   // JSON data only: key order is normalized, array order and raw values retained.
   // Shared rows (minimum/limiting) are allowed; actual cycles are not.
@@ -58,7 +58,7 @@
   function thickness(value){if(numeric(value))return number(value);const v=clean(value);return v||'Ausente';}
   function date(value){const v=clean(value);return /^\d{4}-\d{2}-\d{2}/.test(v)?`${v.slice(8,10)}/${v.slice(5,7)}/${v.slice(0,4)}`:v||'Não informada';}
   function nonempty(value,fallback='Não informado'){return clean(value)||fallback;}
-  function comparisonLabel(status){return status==='CONFORME'?'ATENDE À COMPARAÇÃO':status==='NÃO CONFORME'?'NÃO ATENDE À COMPARAÇÃO':'PENDENTE / AVALIAR';}
+  function comparisonLabel(status){return status==='CONFORME'?'APROVADO':status==='NÃO CONFORME'?'REPROVADO':'PENDENTE / AVALIAR';}
   function comparisonColor(status){return status==='CONFORME'?COLORS.green:status==='NÃO CONFORME'?COLORS.red:COLORS.blue;}
   function groupedPoints(rows){const points=new Map();rows.forEach(row=>{const key=clean(row.point);if(!points.has(key))points.set(key,{name:key,location:clean(row.location),rows:[]});points.get(key).rows.push(row);});return Array.from(points.values()).map(point=>({...point,status:point.rows.some(row=>row.status==='NÃO CONFORME')?'NÃO CONFORME':point.rows.every(row=>row.status==='CONFORME')?'CONFORME':'INCONCLUSIVO'}));}
   function projection(row){
@@ -153,7 +153,7 @@
     const points=groupedPoints(result.rows);
     paragraph('Medição de espessura e vida remanescente',{size:14,bold:true,tint:COLORS.blue,gap:2});
     if(model.demo)paragraph('DEMONSTRAÇÃO: leituras e premissas fictícias para teste. A TAG pode vir de um cadastro real; este documento não representa uma inspeção executada.',{size:8.5,bold:true,tint:COLORS.red,gap:2});
-    paragraph(`RESULTADO: ${comparisonLabel(result.status)}`,{size:11,bold:true,tint:comparisonColor(result.status),gap:1});
+    paragraph(`${comparisonLabel(result.status)} NA COMPARAÇÃO DE ESPESSURAS`,{size:11,bold:true,tint:comparisonColor(result.status),gap:1});
     paragraph(`Classificação do cálculo: ${result.status}. ${points.length} pontos / ${result.rows.length} geratrizes ou posições registradas.`,{size:8.5,gap:1});
     paragraph(nonempty(result.scope,'Escopo restrito às posições registradas e às referências informadas; não constitui liberação operacional.'),{size:8,gap:1});
     heading('Identificação e rastreabilidade');
@@ -167,21 +167,19 @@
       const pointLife=exhausted.length?(exhausted.some(row=>row.result?.status==='at_or_below_minimum'&&row.input.mechanism==='uniform')?'0 - mínima atingida':'Sem margem'):limit?`${number(limit.result.remainingMonths,1)}${eligible.length===point.rows.length?'':' (parcial)'}`:'Indeterminado';
       return [`${point.name} [L${index+1}]`,...readings,pointLife,comparisonLabel(point.status)];
     });
-    table(['Ponto / referência\nde localização','0°\n(mm)','90°\n(mm)','180°\n(mm)','270°\n(mm)','Menor vida elegível\n(meses)','Comparação de\nespessuras'],[81,22,22,22,22,41,59],pointRows.slice(0,6),{size:8,statusColumn:6,statuses:points.slice(0,6).map(point=>point.status),compact:true});
-    if(pointRows.length>6)paragraph(`Resumo inicial: 6 de ${pointRows.length} pontos. Continuação na próxima folha; nenhuma leitura foi descartada.`,{size:8,gap:1});
+    table(['Ponto / referência\nde localização','0°\n(mm)','90°\n(mm)','180°\n(mm)','270°\n(mm)','Menor vida elegível\n(meses)','Comparação de\nespessuras'],[81,22,22,22,22,41,59],pointRows,{size:8,statusColumn:6,statuses:points.map(point=>point.status),compact:true});
     paragraph('O resultado do ponto considera todas as posições registradas: uma posição não conforme reprova a comparação do ponto; lacunas ou igualdade com a mínima mantêm a avaliação pendente.',{size:8,gap:1});
     if(result.minimum)paragraph(`Menor espessura atual: ${number(result.minimum.measurement.current)} mm em ${clean(result.minimum.point)} / ${clean(result.minimum.position)}.`,{size:8.5,bold:true,gap:1});
     if(result.limiting)paragraph(`Menor vida elegível: ${number(result.limiting.result.remainingMonths,1)} meses em ${clean(result.limiting.point)} / ${clean(result.limiting.position)}. ${result.complete?'Projeção elegível em todas as posições.':'Existem posições sem projeção elegível; não representa a vida global da TAG.'}`,{size:8.5,bold:true,gap:1});
     else paragraph('Vida remanescente global da TAG: não determinada. Nenhuma projeção elegível.',{size:8.5,bold:true,gap:1});
 
-    if(pointRows.length>6){page();heading('Resumo por ponto - continuação');table(['Ponto / referência','0° (mm)','90° (mm)','180° (mm)','270° (mm)','Vida (meses)','Comparação'],[81,22,22,22,22,41,59],pointRows.slice(6),{size:8,statusColumn:6,statuses:points.slice(6).map(point=>point.status),compact:true});}
     const premises=[],premiseIds=new Map();
     function premise(row){const input=row.input;const data={currentDate:input.currentDate,previousDate:input.previousDate,minimumKind:input.minimumKind,minimumSource:input.minimumSource,previousOrigin:input.previousOrigin,mechanism:input.mechanism,comparable:input.comparable,useInitial:input.useInitial,initial:input.initial,initialDate:input.initialDate,initialOrigin:input.initialOrigin,ratePolicy:row.result?.policy||input.ratePolicy,justification:row.result?.justification||input.justification};const key=JSON.stringify(data);if(!premiseIds.has(key)){const id=`F${premises.length+1}`;premiseIds.set(key,id);premises.push({id,data,rows:[]});}const id=premiseIds.get(key);premises.find(item=>item.id===id).rows.push(`${clean(row.point)} / ${clean(row.position)}`);return id;}
     const detailRows=result.rows.map(row=>{const r=row.result,c=row.comparison,m=row.measurement;return [`${clean(row.point)} / ${clean(row.position)}`,thickness(row.input.previous),m.valid?number(m.current):thickness(row.input.current),c.valid?number(c.minimum):thickness(row.input.minimum),c.valid?number(c.margin):'Indeterminado',r?number(r.adoptedRate):'Indeterminado',projection(row),comparisonLabel(row.status),premise(row)];});
     page();heading('Registro por geratriz e resultado individual');
     paragraph('Espessuras / margem: mm. Taxa: mm/ano. Vida: meses desde a medição atual. F1, F2... identificam as datas e fontes descritas na próxima seção.',{size:8,gap:2});
     table(['Ponto / geratriz','Anterior\n(mm)','Atual\n(mm)','Mínima\n(mm)','Margem\n(mm)','Taxa adotada\n(mm/ano)','Vida\n(meses)','Comparação','Fonte /\ndatas'],[31,24,24,24,24,29,34,57,22],detailRows,{size:7.2,compact:true,padding:.5,statusColumn:7,statuses:result.rows.map(row=>row.status)});
-    paragraph('ATENDE À COMPARAÇÃO = CONFORME nas posições registradas. NÃO ATENDE À COMPARAÇÃO = NÃO CONFORME. PENDENTE / AVALIAR = INCONCLUSIVO ou NO LIMITE - AVALIAR. Não equivale à liberação operacional.',{size:8,gap:1});
+    paragraph('APROVADO = CONFORME na comparação registrada. REPROVADO = NÃO CONFORME. PENDENTE / AVALIAR = INCONCLUSIVO ou NO LIMITE - AVALIAR. Não equivale à liberação operacional.',{size:8,gap:1});
 
     page();heading('Datas, fontes e premissas');
     const locationRows=[];for(let i=0;i<points.length;i+=2)locationRows.push([`${'L'+(i+1)} - ${points[i].name}: ${nonempty(points[i].location)}`,points[i+1]?`${'L'+(i+2)} - ${points[i+1].name}: ${nonempty(points[i+1].location)}`:'-']);

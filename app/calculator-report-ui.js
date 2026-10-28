@@ -10,7 +10,7 @@ window.PiresCalculatorReportUI = (() => {
   function metadata() {
     if (logoPending) throw Error('Aguarde a leitura da logo para baixar o relatório.');
     if (equipmentPhotoPending) throw Error('Aguarde a preparação da foto do equipamento antes de exportar ou salvar.');
-    return { pdfLayout: $('pmtaPdfLayout').value, company: $('pdfCompany').value.trim(), reportNumber: $('pdfNumber').value.trim(), revision: $('pdfRevision').value.trim(), notes: $('pdfNotes').value.trim(), logoDataUrl: logoDataUrl || '', equipmentPhotoDataUrl, equipmentPhotoCaption: $('pdfEquipmentPhotoCaption').value.trim().slice(0, 1000), signatures: signatures.getValue() };
+    return { company: $('pdfCompany').value.trim(), reportNumber: $('pdfNumber').value.trim(), revision: $('pdfRevision').value.trim(), notes: $('pdfNotes').value.trim(), logoDataUrl: logoDataUrl || '', equipmentPhotoDataUrl, equipmentPhotoCaption: $('pdfEquipmentPhotoCaption').value.trim().slice(0, 1000), signatures: signatures.getValue() };
   }
   function invalidate() { calculation = null; syncDownload(); $('calculatorPdfStatus').textContent = ''; }
   function setResult(item) {
@@ -31,11 +31,11 @@ window.PiresCalculatorReportUI = (() => {
   }
   function clearLogo() { logoTicket++; logoPending = false; logoDataUrl = ''; $('pdfLogo').value = ''; $('pdfLogoPreview').hidden = true; $('pdfLogoPreview').removeAttribute('src'); $('pdfLogoRemove').hidden = true; $('pdfLogoStatus').textContent = ''; }
   function clearEquipmentPhoto() { equipmentPhotoTicket++; equipmentPhotoPending = false; equipmentPhotoDataUrl = ''; $('pdfEquipmentPhoto').value = ''; $('pdfEquipmentPhotoPreview').hidden = true; $('pdfEquipmentPhotoPreview').removeAttribute('src'); $('pdfEquipmentPhotoRemove').hidden = true; $('pdfEquipmentPhotoStatus').textContent = ''; $('pdfEquipmentPhotoCaption').value = ''; syncDownload(); }
-  function clear() { $('pmtaPdfLayout').value = 'compact'; invalidate(); clearLogo(); clearEquipmentPhoto(); signatures.clear(); ['pdfCompany', 'pdfNumber', 'pdfNotes'].forEach(id => $(id).value = ''); $('pdfRevision').value = 'R00'; $('calculatorReport').classList.add('hidden'); }
+  function clear() { invalidate(); clearLogo(); clearEquipmentPhoto(); signatures.clear(); ['pdfCompany', 'pdfNumber', 'pdfNotes'].forEach(id => $(id).value = ''); $('pdfRevision').value = 'R00'; $('calculatorReport').classList.add('hidden'); }
   function restore(value) {
     clear(); if (!value || typeof value !== 'object') return;
     [['company', 'pdfCompany', 160], ['reportNumber', 'pdfNumber', 100], ['revision', 'pdfRevision', 30], ['notes', 'pdfNotes', 5000]].forEach(([key, id, max]) => { if (typeof value[key] === 'string') $(id).value = value[key].slice(0, max); });
-    signatures.setValue(value.signatures); $('pmtaPdfLayout').value = value.pdfLayout === 'full' ? 'full' : 'compact';
+    signatures.setValue(value.signatures);
     if (typeof value.equipmentPhotoCaption === 'string') $('pdfEquipmentPhotoCaption').value = value.equipmentPhotoCaption.slice(0, 1000);
     if (value.equipmentPhotoDataUrl) {
       if (typeof value.equipmentPhotoDataUrl === 'string' && value.equipmentPhotoDataUrl.length <= 7000000 && /^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(value.equipmentPhotoDataUrl)) prepareEquipmentPhoto(value.equipmentPhotoDataUrl);
@@ -101,7 +101,7 @@ window.PiresCalculatorReportUI = (() => {
     try {
       await new Promise(resolve => setTimeout(resolve, 0));
       if (calculation !== requestedCalculation) throw Error('A avaliação foi alterada. Calcule novamente antes de baixar o PDF.');
-      const info = metadata(), generator = calculation.results.mode === 'nr13' ? window.PiresNR13Pdf : calculation.results.mode === 'pmta' && info.pdfLayout !== 'full' ? window.PiresCompactPDF : window.PiresCalculatorPdf;
+      const info = metadata(), generator = calculation.results.mode === 'nr13' ? window.PiresNR13Pdf : window.PiresCalculatorPdf;
       if (!generator || typeof generator.createPdf !== 'function' || typeof window.PiresPDF?.jsPDF !== 'function') throw Error('O módulo do relatório PDF não carregou. Recarregue a página e tente novamente.');
       const { doc } = generator.createPdf(calculation, info, PiresPDF.jsPDF);
       const filename = info.reportNumber || `${reportKind(calculation.results.mode)}-${calculation.inputs.tag || 'AVALIACAO'}-${info.revision || 'R00'}`;

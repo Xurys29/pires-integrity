@@ -80,6 +80,34 @@ button {
   border-radius: 6px;
   max-width: 100%;
 }
+.operation-drawer {
+  margin: 16px 0;
+  padding: 14px;
+  border: 1px solid #cad6dc;
+  border-radius: 10px;
+  background: #fff;
+}
+.operation-drawer > summary {
+  cursor: pointer;
+  color: var(--blue);
+  font-weight: 650;
+  min-height: 32px;
+}
+.operation-drawer fieldset {
+  max-height: 340px;
+  overflow: auto;
+  border: 1px solid #cad6dc;
+  border-radius: 8px;
+  padding: 12px;
+}
+.operation-drawer fieldset label {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+.operation-drawer .notice:empty { display: none; }
+.lvt-photo { display: block; max-width: 100%; max-height: 600px; object-fit: contain; margin: 12px auto; border-radius: 8px; }
+.lvt-photo[hidden] { display: none; }
 input,
 select,
 textarea {
@@ -268,5 +296,128 @@ body.no-motion .light {
   }
   .filters > * {
     width: 100%;
+  }
+}
+
+/* The operation beacon belongs outside the card; RTI changes only the card itself. */
+.asset-entry {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  min-width: 0;
+}
+.asset-entry > .asset-card {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+}
+.operation-indicator {
+  --beacon-color: #536974;
+  --beacon-rgb: 83 105 116;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 9px;
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 8px 11px;
+  border: 1px solid #bdcbd2;
+  border-radius: 10px;
+  color: #344d58;
+  background: #f5f8f9;
+  font-size: 0.9rem;
+  font-weight: 650;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.operation-indicator::before {
+  content: "";
+  display: inline-block;
+  flex: 0 0 13px;
+  width: 13px;
+  height: 13px;
+  border: 2px solid var(--beacon-color);
+  border-radius: 50%;
+  background: var(--beacon-color);
+}
+.operation-indicator[data-tone="green"],
+.operation-indicator.green {
+  --beacon-color: #167244;
+  --beacon-rgb: 22 114 68;
+  color: #104e30;
+  background: #edf8f1;
+  border-color: #8bb99c;
+}
+.operation-indicator[data-tone="red"],
+.operation-indicator.red {
+  --beacon-color: #a4212e;
+  --beacon-rgb: 164 33 46;
+  color: #851a28;
+  background: #fff0f1;
+  border-color: #d6a0a6;
+}
+.operation-indicator[data-tone="neutral"]::before {
+  background: transparent;
+}
+.operation-indicator.animated:not([data-tone="neutral"])::before {
+  animation: operation-beacon-pulse 2.8s ease-in-out infinite;
+}
+.operation-indicator .operation-reason {
+  font-weight: 400;
+}
+.asset-card.has-open-rti {
+  color: white;
+  background: #8f1e2b;
+  border: 2px solid #6c1020;
+}
+.asset-card.has-open-rti h2,
+.asset-card.has-open-rti h3,
+.asset-card.has-open-rti h4,
+.asset-card.has-open-rti .muted,
+.asset-card.has-open-rti a {
+  color: white;
+}
+.asset-card.has-open-rti .badge {
+  color: white;
+  background: #721321;
+  border: 1px solid #edbdc3;
+}
+.asset-card.has-open-rti button,
+.asset-card.has-open-rti .secondary {
+  color: #7c1421;
+  background: white;
+  border-color: white;
+}
+.asset-card.has-open-rti button:focus-visible,
+.asset-card.has-open-rti a:focus-visible {
+  outline: 3px solid #ffe09a;
+  outline-offset: 3px;
+}
+.asset-card.has-open-rti .light {
+  background: white;
+  animation: none;
+}
+.asset-card.has-open-rti .notice {
+  color: white;
+  background: #721321;
+  border-color: #ffe09a;
+}
+body.no-motion .operation-indicator::before {
+  animation: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .operation-indicator::before {
+    animation: none !important;
+  }
+}
+@keyframes operation-beacon-pulse {
+  0%, 100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 rgb(var(--beacon-rgb) / 0);
+  }
+  50% {
+    opacity: 0.65;
+    box-shadow: 0 0 0 6px rgb(var(--beacon-rgb) / 0.16);
   }
 }

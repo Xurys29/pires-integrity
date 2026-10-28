@@ -1,0 +1,21 @@
+project_id = "pires-integrity-development"
+[functions.gestao-api]
+verify_jwt = true
+entrypoint = "./functions/gestao-api/index.ts"
+import_map = "./functions/gestao-api/deno.json"
+[functions.access-admin]
+verify_jwt = true
+entrypoint = "./functions/access-admin/index.ts"
+[functions.billing-account]
+verify_jwt = true
+entrypoint = "./functions/billing-account/index.mjs"
+[functions.billing-reconcile]
+verify_jwt = true
+entrypoint = "./functions/billing-reconcile/index.mjs"
+[functions.asaas-webhook]
+verify_jwt = false
+entrypoint = "./functions/asaas-webhook/index.mjs"
+[functions.team-exercise-provision]
+verify_jwt = true
+entrypoint = "./functions/team-exercise-provision/index.ts"
+

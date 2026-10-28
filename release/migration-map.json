@@ -1,0 +1,98 @@
+[
+  {
+    "remote_version": "20261007232145",
+    "name": "restrict_rls_auto_enable_execution",
+    "file": "supabase/history/20261007232145_restrict_rls_auto_enable_execution.sql",
+    "source_matches_normalized": true,
+    "remote_source_sha256": "b751d50a25703bcc63b88a74239064ba9de2b0aa9faf3419b5744cfbdf2b3a94",
+    "notes": null
+  },
+  {
+    "remote_version": "20261016140801",
+    "name": "company_licensing_v3b_authorized",
+    "file": "supabase/history/20261016140801_company_licensing_v3b_authorized.sql",
+    "source_matches_normalized": false,
+    "remote_source_sha256": "629dd387201e4228df94512f58ca8c7b5235a0840d19b9be49e40ab129cea44d",
+    "notes": "Production-specific assertions and user/license mapping omitted"
+  },
+  {
+    "remote_version": "20261016204113",
+    "name": "registration_requests_approval_v1",
+    "file": "supabase/history/20261016204113_registration_requests_approval_v1.sql",
+    "source_matches_normalized": true,
+    "remote_source_sha256": "5ac71e1705a15ff17149db7289f4aa73df22bf6d7418be513e080564d8da3561",
+    "notes": null
+  },
+  {
+    "remote_version": "20261016215713",
+    "name": "asaas_billing_observe_v1",
+    "file": "supabase/history/20261016215713_asaas_billing_observe_v1.sql",
+    "source_matches_normalized": true,
+    "remote_source_sha256": "c53f70a15626c23d9b33256c5141bc6aaadf4404a4564ebea67beddc20330ad0",
+    "notes": null
+  },
+  {
+    "remote_version": "20261026183751",
+    "name": "gestao_integrated_private_pilot_v1",
+    "file": "supabase/migrations/20261026150913_gestao_integrated_registry_review.sql",
+    "source_matches_normalized": true,
+    "remote_source_sha256": "92aac1da4045f4a5c344b6b9476e347b57cbac06a95ae4eaf7a7cc525c19407e",
+    "notes": null
+  },
+  {
+    "remote_version": "20261027165138",
+    "name": "gestao_operacao_lvt_rti",
+    "file": "supabase/migrations/20261027162800_gestao_operacao_lvt_rti.sql",
+    "source_matches_normalized": true,
+    "remote_source_sha256": "c911b8b9f732e69b5b4876120bdfb27533a5540bd9e6092d61f82071daa58be4",
+    "notes": null
+  },
+  {
+    "remote_version": "20261027185424",
+    "name": "gestao_line_list_review",
+    "file": "supabase/migrations/20261027181656_gestao_line_list_review.sql",
+    "source_matches_normalized": true,
+    "remote_source_sha256": "0c3e914da10a5bb667160b1ef05386ca6c569f7cbb408db6d621ab1277e7d85a",
+    "notes": null
+  },
+  {
+    "remote_version": "20261027190752",
+    "name": "gestao_line_list_batches",
+    "file": "supabase/migrations/20261027190611_gestao_line_list_batches.sql",
+    "source_matches_normalized": true,
+    "remote_source_sha256": "7156f9ea98ef8f4c03eade62009a4a17bbd75e7d4f430c2b656bb730c9a85f0a",
+    "notes": null
+  },
+  {
+    "remote_version": "20261027211056",
+    "name": "gestao_project_dashboard",
+    "file": "supabase/migrations/20261027202838_gestao_project_dashboard.sql",
+    "source_matches_normalized": true,
+    "remote_source_sha256": "96bc606c6f8839fbe26d822202252885a470d66f6200644b8a7849651df4c02f",
+    "notes": null
+  },
+  {
+    "remote_version": "20261027212502",
+    "name": "gestao_project_preview_bulk",
+    "file": "supabase/migrations/20261027212336_gestao_project_preview_bulk.sql",
+    "source_matches_normalized": true,
+    "remote_source_sha256": "736ef3babdc595aa4e36554db62a4f29f38e5f8eb08ebeadb186bd9afc11aa52",
+    "notes": null
+  },
+  {
+    "remote_version": "20261028131011",
+    "name": "team_registry_stage_one",
+    "file": "supabase/migrations/20261028124613_team_registry_stage_one.sql",
+    "source_matches_normalized": true,
+    "remote_source_sha256": "971c512795cb422edd763d2ccb2e44734ea289212500ee397a5936647e46cf9d",
+    "notes": null
+  },
+  {
+    "remote_version": "20261028174130",
+    "name": "team_exercise_access_validation",
+    "file": "supabase/migrations/20261028174014_team_exercise_access_validation.sql",
+    "source_matches_normalized": true,
+    "remote_source_sha256": "e7956756da7d9d9d192b3b1bcc5a9f2774248481d5586bb53fcbad05bf885eea",
+    "notes": null
+  }
+]

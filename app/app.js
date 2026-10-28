@@ -8,8 +8,6 @@ const assessmentNote = 'Subsídio técnico para análise e decisão do cliente e
 let mode = null, snapshot = null, report = '';
 const sharedDrafts = {}, exampleHints = {};
 const CalculatorReport = window.PiresCalculatorReportUI;
-// This portable demo excludes local pilots and their private source data.
-const localPilotsAvailable = window.PIRES_CONFIG?.mode === 'demo' && window.PIRES_CONFIG?.localPilotsEnabled === true;
 const sections = ['auth', 'home', 'calculators', 'calculator', 'results', 'history', 'passwordReset', 'emailVerification', 'accessDenied'];
 const sources = {
   life: [
@@ -58,7 +56,7 @@ $('openCalculators').onclick = async () => { if (await PiresAccount.guard()) sho
 $('backModules').onclick = () => show('home');
 // The management pilot is served and bundled only in the local demonstration.
 // Connected publication packages do not contain its data or files.
-if (localPilotsAvailable) {
+if (window.PIRES_CONFIG?.mode === 'demo') {
   $('assetsModule').classList.remove('module-planned');
   $('assetsModuleBadge').textContent = 'Piloto local';
   $('managementPlanned').classList.add('hidden');
@@ -81,7 +79,7 @@ function syncCodeRoute() {
     : profile === 'asme-viii-3'
       ? 'Divisão 3: use o diagnóstico separado de KD-221.1:2025. As fórmulas UG da Divisão 1 ficam bloqueadas.'
       : 'Código sem motor estrutural validado nesta calculadora. Registre a base no book do ativo; cálculo automático pendente.';
-  $('pmtaDiv3Link').classList.toggle('hidden', profile !== 'asme-viii-3' || !localPilotsAvailable);
+  $('pmtaDiv3Link').classList.toggle('hidden', profile !== 'asme-viii-3' || window.PIRES_CONFIG?.mode !== 'demo');
 }
 $('pmtaCodeProfile').addEventListener('change', syncCodeRoute);
 ['useInitial', 'ratePolicy'].forEach(id => $(id).addEventListener('change', syncControls));
@@ -96,7 +94,7 @@ function open(kind) {
   ['life', 'pmta', 'risk'].forEach(k => { $(k + 'Fields').disabled = k !== kind; $(k + 'Fields').classList.toggle('hidden', k !== kind); });
   $('calcTitle').textContent = {life: 'Vida remanescente • ME', pmta: 'Equipamentos • NR-13 e PMTA', risk: 'Matriz PI — Pires Integrity'}[kind];
   $('calcIntro').textContent = {life: 'Calcule a taxa de corrosão e o prazo até a espessura de referência de um ponto de medição.', pmta: 'Identifique a família, confira a abrangência e a categoria NR-13 ou calcule pressões parciais dos componentes disponíveis.', risk: 'Fundamente a probabilidade e as consequências de falha para obter a classificação indicativa e recomendações técnicas.'}[kind];
-  $('loadExample').textContent = {life: 'Carregar demonstração fictícia de ME', pmta: 'Carregar exemplo da planilha', risk: 'Carregar cenário didático'}[kind];
+  $('loadExample').textContent = {life: 'Carregar exemplo do relatório 2025', pmta: 'Carregar exemplo da planilha', risk: 'Carregar cenário didático'}[kind];
   $('calculate').textContent = kind === 'risk' ? 'Gerar classificação indicativa' : 'Calcular avaliação';
   $('exampleHint').textContent = exampleHints[kind] || ''; $('calcError').textContent = ''; snapshot = null; report = ''; syncControls(); NRUI.sync(kind === 'pmta'); show('calculator');
 }
@@ -114,12 +112,12 @@ const today = new Date().toISOString().slice(0, 10);
 $('loadExample').onclick = () => {
   CalculatorReport.clear();
   const values = mode === 'pmta' && NRUI.selected() ? NRUI.example() : mode === 'risk' ? RiskUI.example() : mode === 'life' ? {
-    tag: 'DEMO-ME-001', service: 'Serviço fictício — demonstração', material: 'Aço carbono — premissa fictícia',
-    point: 'CML-DEMO-01 — ponto fictício', current: '9', previous: '10', minimum: '6',
-    previousDate: '2022-01-01', currentDate: '2024-01-01', previousOrigin: 'measured', minimumKind: 'reference',
-    minimumSource: 'DEMO-MIN-001 — referência fictícia sem validação normativa',
-    measurementSource: 'DEMO-ME-001 — medições sintéticas para demonstração; nenhuma inspeção real',
-    mechanism: 'uniform', ratePolicy: 'max', assumptions: 'Cenário inteiramente fictício de perda uniforme e serviço constante, criado somente para demonstrar a fórmula.'
+    tag: 'EXEMPLO-ME-2025', service: 'Serviço não confirmado — exemplo numérico', material: 'Material não confirmado — exemplo numérico',
+    point: 'Exemplo do quadro VIDA RESIDUAL', current: '3,6', previous: '5,8', minimum: '2',
+    previousDate: '2016-01-06', currentDate: '2025-01-01', previousOrigin: 'nominal', minimumKind: 'reference',
+    minimumSource: 'Modelo 2025, Relatório Fotográfico1!W26 — origem normativa não demonstrada',
+    measurementSource: 'ANNEX 01 — Modelo 2025, Relatório Fotográfico1!W22:W25',
+    mechanism: 'uniform', ratePolicy: 'max', assumptions: 'Exemplo: perda uniforme e serviço constante assumidos para demonstrar a fórmula; não confirmados pelo arquivo.'
   } : {
     ...Object.fromEntries(pmtaFields.map(([id, , value]) => [id, String(value)])),
     tag: 'V-001-EXEMPLO', service: 'Ar comprimido', material: 'SA-516 Gr.70 — exemplo', head: 'elliptical',
@@ -128,7 +126,7 @@ $('loadExample').onclick = () => {
   };
   Object.entries(values).forEach(([id, value]) => $(id).value = value);
   if (mode === 'life') { $('useInitial').checked = false; $('comparable').checked = true; }
-  exampleHints[mode] = {life: 'Demonstração inteiramente fictícia. Identificação, medições, datas, referência mínima e condições não representam equipamento ou inspeção reais.', pmta: NRUI.selected() ? 'Cenário didático: ar comprimido, 8 bar e 7,068583471 m³; classe C, grupo 3, categoria III. Revisão de exclusões assumida para o exemplo.' : 'Dados do exemplo enviado na conversa. Resultado parcial, sem aprovação do vaso.', risk: 'Cenário inteiramente fictício: PoF 3; CoF pessoas 4, ambiente 2 e negócios 3. Classificação indicativa esperada: CAT2, 12 pontos.'}[mode];
+  exampleHints[mode] = {life: 'Dados numéricos do modelo 2025. TAG, serviço, material e mecanismo são identificados como exemplo / hipótese.', pmta: NRUI.selected() ? 'Cenário didático: ar comprimido, 8 bar e 7,068583471 m³; classe C, grupo 3, categoria III. Revisão de exclusões assumida para o exemplo.' : 'Dados do exemplo enviado na conversa. Resultado parcial, sem aprovação do vaso.', risk: 'Cenário inteiramente fictício: PoF 3; CoF pessoas 4, ambiente 2 e negócios 3. Classificação indicativa esperada: CAT2, 12 pontos.'}[mode];
   if (mode === 'risk') RiskUI.refreshPof();
   $('exampleHint').textContent = exampleHints[mode]; $('calcError').textContent = ''; snapshot = null; report = ''; syncControls(); NRUI.sync(mode === 'pmta');
 };

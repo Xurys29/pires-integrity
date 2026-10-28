@@ -1,7 +1,22 @@
 "use strict";
 (() => {
+  const initialRouteHash = window.location.hash;
+  let initialRouteRestored = false;
   const $ = (id) => document.getElementById(id),
-    N = window.IntegrityNR13;
+    N = window.IntegrityNR13,
+    accountMode = window.PIRES_CONFIG?.mode === "connected",
+    connectedMode = accountMode && window.PIRES_CONFIG?.gestao?.backend === "supabase",
+    authOnlyMode = accountMode && !connectedMode;
+  let connected = null, connectedError = null, flow = null, operational = null, activeModule = "", authOnlyTenant = null,
+    accountGrant = null, accountUserId = null, connectedCapabilities = {};
+  if (accountMode) {
+    try {
+      if (!window.PiresGestaoConnected) throw Error("Adaptador da Gestão conectada indisponível.");
+      connected = connectedMode
+        ? window.PiresGestaoConnected.create(window.PIRES_CONFIG)
+        : window.PiresGestaoConnected.createAccount(window.PIRES_CONFIG);
+    } catch (error) { connectedError = error; }
+  }
   const names = {
     integridade: "Gestão de Integridade",
     nr13: "Gestão de NR-13",
@@ -31,13 +46,12 @@
     aprovado: "Aprovado",
     substituido: "Substituído por nova revisão",
   };
-  let state = null,
+  let state = null, ownerList = [],
     company = "",
     page = 1,
     contract = "",
     scope = "",
-    source = null,
-    preview = null;
+    stateRequest = 0;
   function el(tag, text, cls) {
     const n = document.createElement(tag);
     if (text !== undefined) n.textContent = text;
@@ -48,7 +62,34 @@
     $("message").textContent = text;
     $("message").className = error ? "notice error" : "notice";
   }
+  function requireLogin() {
+    stateRequest++;
+    state = null;
+    company = "";
+    ownerList = [];
+    $("login").hidden = false;
+    $("workspace").hidden = true;
+    $("tenantAccess").hidden = true;
+    $("logout").hidden = true;
+    if (connected?.setTenant) connected.setTenant(null);
+    authOnlyTenant = null;
+    accountGrant = null; accountUserId = null;
+    connectedCapabilities = {};
+    $("tools").replaceChildren();
+    $("company").replaceChildren();
+    for (const id of ["systems", "assets", "contracts", "indicators"]) $(id).replaceChildren();
+    flow?.reset();
+  }
   async function api(route, body) {
+    if (authOnlyMode) throw Error("O cadastro operacional não está disponível nesta etapa de avaliação das telas. Nenhuma gravação foi realizada.");
+    if (connectedMode) {
+      if (connectedError) throw connectedError;
+      try { return await connected.request(route, body); }
+      catch (error) {
+        if ([401, 403].includes(error.status)) requireLogin();
+        throw error;
+      }
+    }
     const r = await fetch("/api/" + route, {
       method: body === undefined ? "GET" : "POST",
       headers:
@@ -59,9 +100,7 @@
     });
     const result = await r.json();
     if (r.status === 401) {
-      $("login").hidden = false;
-      $("workspace").hidden = true;
-      $("logout").hidden = true;
+      requireLogin();
       throw Error(result.error);
     }
     if (!r.ok) throw Error(result.error);
@@ -75,7 +114,7 @@
     b.onclick = () =>
       Promise.resolve()
         .then(fn)
-        .catch((e) => msg(e.message, true));
+        .catch((e) => { if (e.status === 401) requireLogin(); msg(e.message, true); });
     parent?.append(b);
     return b;
   }
@@ -107,7 +146,7 @@
         );
       input.name = field.key;
       if (field.options) options(input, field.options, field.empty);
-      else input.type = field.type || "text";
+      else if (!field.area) input.type = field.type || "text";
       if (field.value !== undefined) input.value = field.value;
       input.required = field.required !== false;
       if (field.type === "number") {
@@ -169,7 +208,26 @@
     parent.append(wrap);
   }
   async function load() {
+    if (authOnlyMode) return loadAccountWorkspace();
+    if (connectedMode && !connected?.getTenant()) return;
+    const request = ++stateRequest;
+    if (connectedMode) {
+      const status = await api("status");
+      if (request !== stateRequest) return;
+      connectedCapabilities = {...status.capabilities, preparedSources: status.preparedSources || []};
+      connectedPermissions(connectedCapabilities.write === true);
+    }
     const list = await api("companies");
+    if (request !== stateRequest) return;
+    ownerList = list;
+    if (connectedMode && !initialRouteRestored) {
+      initialRouteRestored = true;
+      const requested = window.PiresGestaoFlow?.parseHash(initialRouteHash);
+      if (requested && list.some(c => c.id === requested.clientId)) {
+        company = requested.clientId;
+        window.history.replaceState(null, "", initialRouteHash);
+      }
+    }
     options(
       $("company"),
       list.map((c) => [
@@ -185,7 +243,9 @@
     $("workspace").hidden = false;
     $("logout").hidden = false;
     if (company) {
-      state = await api(path("state"));
+      const nextState = await api(path("state"));
+      if (request !== stateRequest) return;
+      state = nextState;
       render();
     } else {
       state = null;
@@ -200,11 +260,101 @@
       );
       $("detail").hidden = true;
     }
+    if (!company) flow?.render();
+  }
+  async function loadAccountWorkspace() {
+    const request = ++stateRequest, tenant = authOnlyTenant;
+    accountGrant = null;
+    $("workspace").hidden = true;
+    if (!tenant) return;
+    try {
+      const grant = await connected.access(tenant);
+      if (request !== stateRequest || tenant !== authOnlyTenant) return;
+      if (!grant.allowed || grant.company_id !== tenant || grant.company_role === "client" || typeof grant.user_id !== "string")
+        throw Error(grant.message || "O acesso a esta empresa não está autorizado.");
+      if (accountUserId && accountUserId !== grant.user_id) {
+        state = null; company = "";
+        flow?.reset();
+      }
+      accountUserId = grant.user_id;
+      accountGrant = { userId: grant.user_id, tenant, generation: request };
+      state = null; company = "";
+      $("company").replaceChildren(new Option("Cadastro de clientes indisponível nesta etapa", ""));
+      $("login").hidden = true;
+      $("workspace").hidden = false;
+      $("logout").hidden = false;
+      connectedPermissions(false);
+      msg("Acesso confirmado. Escolha um dos quatro módulos para avaliar as telas. Nenhum cliente ou ativo está selecionado.");
+      flow?.render();
+    } catch (error) {
+      if (request === stateRequest) {
+        accountGrant = null; state = null; company = "";
+        $("workspace").hidden = true;
+        flow?.reset();
+        if (error.status === 401) requireLogin();
+      }
+      throw error;
+    }
+  }
+  async function connectedStart() {
+    if (authOnlyMode) {
+      const request = ++stateRequest;
+      accountGrant = null;
+      $("workspace").hidden = true;
+      const user = await connected.user();
+      if (request !== stateRequest) return;
+      if (!user?.email_confirmed_at) { requireLogin(); throw Error("Entre com sua conta do aplicativo."); }
+      if (accountUserId && accountUserId !== user.id) { authOnlyTenant = null; flow?.reset(); }
+      accountUserId = user.id;
+      const list = await connected.companies();
+      if (request !== stateRequest) return;
+      options($("tenant"), list.map((tenant) => [tenant.id, tenant.name]), "Selecione a empresa de acesso");
+      authOnlyTenant = list.some((tenant) => tenant.id === authOnlyTenant) ? authOnlyTenant : list.length === 1 ? list[0].id : null;
+      $("tenant").value = authOnlyTenant || "";
+      $("tenantAccess").hidden = false;
+      $("login").hidden = true;
+      $("logout").hidden = false;
+      $("workspace").hidden = true;
+      if (authOnlyTenant) await loadAccountWorkspace();
+      else msg(list.length ? "Selecione a empresa de acesso para avaliar as telas." : "Esta conta não possui empresa de acesso disponível.");
+      return;
+    }
+    await api("status");
+    let list;
+    try { list = await connected.tenants(); }
+    catch (error) { if (error.status === 401) requireLogin(); throw error; }
+    const selected = connected.getTenant();
+    options($("tenant"), list.map((t) => [t.id, t.name]), "Selecione a empresa de acesso");
+    const id = list.some((t) => t.id === selected) ? selected : list.length === 1 ? list[0].id : null;
+    connected.setTenant(id);
+    $("tenant").value = id || "";
+    $("tenantAccess").hidden = false;
+    $("login").hidden = true;
+    $("logout").hidden = false;
+    $("workspace").hidden = true;
+    if (id) await load();
+    else msg(list.length ? "Selecione a empresa de acesso para consultar os ativos." : "Esta conta não possui empresa de acesso disponível para Gestão de Ativos.");
+  }
+  function connectedPermissions(write) {
+    for (const id of ["newCompany", "newAsset", "importButton"])
+      $(id).disabled = !write;
+    $("connectedWriteNotice").hidden = write;
+    if (connectedMode) $("rtiFilter").disabled = false;
   }
   async function refresh() {
+    if (authOnlyMode) return loadAccountWorkspace();
     if (!company) return load();
-    state = await api(path("state"));
+    const request = ++stateRequest,
+      nextState = await api(path("state"));
+    if (request !== stateRequest) return;
+    state = nextState;
     render();
+  }
+  function systemOptions(selected = "") {
+    const unit = $("unitFilter").value,
+      list = state.system.filter((s) => !unit || s.unitId === unit);
+    options($("systemFilter"), list.map((s) => [s.id, s.name]), "Todos");
+    $("systemFilter").value = list.some((s) => s.id === selected) ? selected : "";
   }
   function render() {
     const filters = ["unitFilter", "systemFilter", "typeFilter"].map((id) => [
@@ -217,24 +367,21 @@
       "Todas",
     );
     const unit = filters.find((x) => x[0] === "unitFilter")[1];
-    options(
-      $("systemFilter"),
-      state.system
-        .filter((s) => !unit || s.unitId === unit)
-        .map((s) => [s.id, s.name]),
-      "Todos",
-    );
-    options($("typeFilter"), Object.entries(types), "Todos");
-    filters.forEach(([id, v]) => ($(id).value = v));
+    $("unitFilter").value = state.unit.some((u) => u.id === unit) ? unit : "";
+    systemOptions(filters.find((x) => x[0] === "systemFilter")[1]);
+    options($("typeFilter"), Object.entries(types).filter(([key]) => !connectedMode || ["linha", "segmento"].includes(key)), "Todos");
+    $("typeFilter").value = filters.find((x) => x[0] === "typeFilter")[1];
     systems();
-    assets();
     contracts();
+    assets();
+    if (!$("detail").hidden) detail($("detail").dataset.assetId, false);
+    flow?.render();
   }
   function systems() {
     const p = $("systems");
     p.replaceChildren();
     for (const s of state.system) {
-      const list = state.asset.filter((a) => a.systemId === s.id),
+      const list = state.asset.filter((a) => a.systemId === s.id && belongsToModule(a)),
         card = el("article", undefined, "card");
       card.append(
         el("h3", s.name),
@@ -249,7 +396,7 @@
         "Abrir sistema",
         () => {
           $("unitFilter").value = s.unitId;
-          $("systemFilter").value = s.id;
+          systemOptions(s.id);
           page = 1;
           assets();
         },
@@ -258,6 +405,12 @@
       p.append(card);
     }
   }
+  function belongsToModule(asset) {
+    if (!activeModule) return true;
+    if (activeModule === "valvulas") return asset.type === "valvula";
+    if (activeModule === "nr13") return asset.type !== "valvula" && window.PiresAssetCards?.describe(asset, state).nr13.scope === "covered";
+    return asset.type !== "valvula";
+  }
   function selectedAssets() {
     const q = $("search").value.toLocaleLowerCase("pt-BR"),
       u = $("unitFilter").value,
@@ -265,10 +418,9 @@
       t = $("typeFilter").value,
       r = $("rtiFilter").value;
     return state.asset.filter((a) => {
-      const open = state.rti.some(
-        (x) => x.assetId === a.id && x.status === "aberta",
-      );
+      const open = window.PiresAssetCards?.describe(a, state).rti.open === true;
       return (
+        belongsToModule(a) &&
         (!q ||
           `${a.tag} ${a.segment || ""}`
             .toLocaleLowerCase("pt-BR")
@@ -287,26 +439,63 @@
   function assets() {
     const p = $("assets");
     p.replaceChildren();
+    p.classList.toggle("nr13-card-grid", activeModule === "nr13");
     if (!state) return;
     const list = selectedAssets(),
       pages = Math.max(1, Math.ceil(list.length / 12));
+    if (!list.some((a) => a.id === $("detail").dataset.assetId))
+      $("detail").hidden = true;
     page = Math.min(page, pages);
     for (const a of list.slice((page - 1) * 12, page * 12)) {
-      const card = el("article", undefined, "card");
+      const entry = el("div", undefined, "asset-entry"),
+        card = el("article", undefined, "card asset-card"),
+        description = window.PiresAssetCards?.describe(a, state);
+      card.dataset.assetId = a.id;
+      if (description) {
+        const operation = el("div", description.operation.label, "operation-indicator");
+        operation.dataset.tone = description.operation.tone;
+        operation.dataset.assetId = a.id;
+        operation.classList.toggle("animated", description.operation.animated);
+        if (description.operation.reason) {
+          operation.title = description.operation.reason;
+          operation.append(el("span", description.operation.reason, "operation-reason"));
+        }
+        card.classList.toggle("has-open-rti", description.rti.open);
+        entry.append(operation);
+      }
+      if (activeModule === "nr13" && description) {
+        card.classList.add("nr13-asset-card", "flow-module-card");
+        const heading = el("div", undefined, "asset-card-heading");
+        const symbol = el("span", "▤", "module-symbol"); symbol.setAttribute("aria-hidden", "true"); heading.append(symbol);
+        heading.append(el("span", types[a.type], "eyebrow"), el("h3", a.tag));
+        const scope = el("p", description.nr13.scopeLabel, "nr13-status");
+        scope.dataset.scope = description.nr13.scope;
+        card.append(heading, scope);
+        dl(card, [
+          ["Unidade", state.unit.find(u => u.id === a.unitId)?.name || "A confirmar"],
+          ["Fluido", description.nr13.fluid],
+          ["Pressão de operação", description.nr13.operatingPressure || "A confirmar"],
+          ["Classe de pressão", description.nr13.pressureClass || "Não informada"],
+          ["Classe do fluido", description.nr13.fluidClass || "A confirmar"],
+          ...(a.type === "tanque" ? [["Volume", description.nr13.volume || "A confirmar"]] : [["Categoria NR-13", description.nr13.categoryLabel]]),
+          ["Próxima inspeção", description.nr13.nextInspectionDate || "Prazo a definir"],
+        ]);
+        const pending = el("div", undefined, "asset-book-summary");
+        pending.append(el("strong", description.book.pending.length ? `${description.book.pending.length} pendências cadastradas no book` : description.book.statusLabel),
+          el("span", description.book.inspectionLabel), el("span", description.rti.label));
+        card.append(pending);
+      } else {
       card.append(el("h3", a.tag), el("span", types[a.type], "badge"));
       const op = el("p", operations[a.operation] || "Não informado");
-      if (a.operation === "em_operacao")
-        op.prepend(el("span", undefined, "light green"));
       card.append(op, el("p", "Condição técnica: Não avaliado", "badge"));
-      const rtis = state.rti.filter(
-        (r) => r.assetId === a.id && r.status === "aberta",
-      );
+      const rtis = state.rti.filter((r) => r.assetId === a.id);
       for (const r of rtis) {
+        const summary = window.PiresAssetCards?.describeRti(r);
         const n = el(
           "p",
-          `RTI aberta: ${r.title} · ${r.due ? "Prazo: " + r.due : "Prazo não definido"}`,
+          `RTI: ${r.title} · fonte: ${summary?.sourceStatus || r.sourceStatus || r.status || "Situação não informada"} · ${summary?.currentnessLabel || "Atualidade desconhecida / registro histórico"} · ${r.sourceDate || "Data da fonte não informada"} · ${r.due ? "Prazo documentado: " + r.due : "Prazo não informado"}`,
         );
-        n.prepend(el("span", undefined, "light red"));
+        if (summary?.open) n.prepend(el("span", undefined, "light red"));
         card.append(n);
       }
       const sys = state.system.find((s) => s.id === a.systemId),
@@ -320,8 +509,7 @@
           ? [
               [
                 "Enquadramento",
-                state.classification.filter((c) => c.assetId === a.id).at(-1)
-                  ?.result.scope || "Não avaliado",
+                description?.nr13.scopeLabel || "Não avaliado",
               ],
               [
                 "Justificativa do enquadramento",
@@ -333,13 +521,11 @@
               ],
               [
                 "Classe do fluido",
-                state.classification.filter((c) => c.assetId === a.id).at(-1)
-                  ?.result.fluidClass,
+                description?.nr13.fluidClass,
               ],
               [
                 "Categoria",
-                state.classification.filter((c) => c.assetId === a.id).at(-1)
-                  ?.result.category,
+                description?.nr13.categoryLabel || "Pendente de confirmação",
               ],
             ]
           : []),
@@ -357,10 +543,12 @@
             ? "Consultar book e revisões"
             : "Sem relatório no sistema",
         ],
-        ["Última inspeção interna", last(a.id, "interna")],
-        ["Próxima inspeção interna", due(a.id, "interna")],
-        ["Última inspeção externa", last(a.id, "externa")],
-        ["Próxima inspeção externa", due(a.id, "externa")],
+        ...[
+              ["Última inspeção interna", last(a.id, "interna")],
+              ["Próxima inspeção interna", due(a.id, "interna")],
+              ["Última inspeção externa", last(a.id, "externa")],
+              ["Próxima inspeção externa", due(a.id, "externa")],
+            ],
         ...(a.source?.format === "pdf_control"
           ? [
               [
@@ -374,8 +562,13 @@
             ]
           : []),
       ]);
-      button("Abrir card e book", () => detail(a.id), card);
-      p.append(card);
+      }
+      if (connectedMode && connectedCapabilities.operations && activeModule === "integridade") {
+        button("Abrir LVT desta TAG", () => flow.navigate("integridade", "lvt", a.id, contract), card);
+        button("Consultar book", () => flow.navigate("integridade", "book", a.id, contract), card, "secondary");
+      } else button(activeModule === "nr13" ? "Abrir book e pendências" : "Abrir card e book", () => flow ? flow.navigate(activeModule || "integridade", "book", a.id, contract) : detail(a.id), card, activeModule === "nr13" ? "module-access" : undefined);
+      entry.append(card);
+      p.append(entry);
     }
     if (!list.length) p.append(el("p", "Nenhum ativo nesta seleção."));
     $("pageLabel").textContent =
@@ -450,14 +643,16 @@
   function contracts() {
     const p = $("contracts");
     p.replaceChildren(el("h2", "Contratos e escopos"));
+    if (connectedMode) return;
     const sel = el("select");
     options(
       sel,
-      state.contract.map((c) => [c.id, c.name]),
+      state.contract.filter((c) => !activeModule || c.modules.includes(activeModule)).map((c) => [c.id, c.name]),
       "Todos os ativos (sem filtro por contrato)",
     );
     sel.value = contract;
     sel.onchange = () => {
+      if (flow && activeModule) return flow.navigate(activeModule, "ativos", "_", sel.value);
       contract = sel.value;
       scope = "";
       page = 1;
@@ -474,7 +669,7 @@
       const sub = el("select");
       options(
         sub,
-        con.modules.map((m) => [m, names[m]]),
+        con.modules.filter((m) => !activeModule || m === activeModule).map((m) => [m, names[m]]),
         "Todos os submódulos contratados",
       );
       sub.value = scope;
@@ -649,12 +844,16 @@
       );
     }
   }
-  async function detail(id) {
-    const a = state.asset.find((a) => a.id === id);
-    if (!a) return;
-    const p = $("detail");
+  async function detail(id, scroll = true) {
+    const p = $("detail"),
+      a = state.asset.find((a) => a.id === id);
+    if (!a) {
+      p.hidden = true;
+      return;
+    }
+    p.dataset.assetId = id;
     p.hidden = false;
-    p.replaceChildren(el("h2", a.tag + " · book individual"));
+    p.replaceChildren(el("h2", a.tag + (connectedMode ? " · cadastro e origem" : " · book individual")));
     button("Fechar card", () => (p.hidden = true), p, "secondary");
     dl(p, [
       ["Empresa", state.company.displayName || state.company.name],
@@ -664,10 +863,12 @@
       ["Operação", operations[a.operation]],
       ["Fonte da operação", a.operationEvidence],
       ["Condição técnica", "Não avaliado"],
-      ["Inspeção interna anterior", last(id, "interna")],
-      ["Inspeção interna próxima", due(id, "interna")],
-      ["Inspeção externa anterior", last(id, "externa")],
-      ["Inspeção externa próxima", due(id, "externa")],
+      ...(!connectedMode ? [
+        ["Inspeção interna anterior", last(id, "interna")],
+        ["Inspeção interna próxima", due(id, "interna")],
+        ["Inspeção externa anterior", last(id, "externa")],
+        ["Inspeção externa próxima", due(id, "externa")],
+      ] : []),
     ]);
     dl(
       p,
@@ -692,9 +893,28 @@
     );
     p.append(origin);
     if (a.source?.sourceId) {
-      const link = el("a", "Baixar documento original de origem");
-      link.href = "/api/" + path("sources/" + a.source.sourceId);
-      p.append(link);
+      if (connectedMode) {
+        button("Baixar documento original de origem", async () => {
+          const { blob, name } = await connected.download(path("sources/" + a.source.sourceId)),
+            url = URL.createObjectURL(blob), link = el("a");
+          link.href = url;
+          link.download = name;
+          document.body.append(link);
+          link.click();
+          link.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+        }, p);
+      } else {
+        const link = el("a", "Baixar documento original de origem");
+        link.href = "/api/" + path("sources/" + a.source.sourceId);
+        p.append(link);
+      }
+    }
+    if (connectedMode) {
+      p.append(el("p", "Este modo conectado cobre cadastro de linhas e importação XLSX rastreável. Book documental, enquadramento, prazos, execução, entregas e RTIs ainda não estão disponíveis. Nenhuma aprovação técnica é inferida pelo cadastro.", "notice"));
+      button("Histórico do cadastro", () => history(id, p), p, "secondary");
+      if (scroll) p.scrollIntoView({ block: "start" });
+      return;
     }
     if (a.source?.format === "pdf_control") {
       dl(p, [
@@ -1053,7 +1273,7 @@
     );
     button("Registrar entrega de relatório", () => deliveryForm(p, a), p);
     button("Histórico do cadastro", () => history(id, p), p, "secondary");
-    p.scrollIntoView({ block: "start" });
+    if (scroll) p.scrollIntoView({ block: "start" });
   }
   async function history(id, p) {
     const data = await api(path("history/" + id)),
@@ -1238,7 +1458,7 @@
     );
   }
   function inspectionForm(p, a) {
-    form(
+    const { controls } = form(
       p,
       "Inspeção · planejamento separado da execução",
       [
@@ -1309,6 +1529,13 @@
         detail(a.id);
       },
     );
+    controls.id.onchange = () => {
+      const prior = state.inspection.find((i) => i.id === controls.id.value && i.assetId === a.id);
+      for (const key of ["contractId", "module", "type", "planned", "planningSource", "done", "executionSource"])
+        controls[key].value = prior?.[key] || ({ module: "integridade", type: "visual" }[key] || "");
+      for (const key of ["contractId", "module", "type"])
+        controls[key].disabled = Boolean(prior);
+    };
   }
   function deliveryForm(p, a) {
     form(
@@ -1357,29 +1584,34 @@
     p.append(
       el(
         "p",
-        "Aceita XLSX e PDF de controle Execution Control. Outros PDFs exigem conferência separada. Uma aba não é presumida como um sistema. Confira cabeçalhos, unidade e conteúdo. Repetições de TAG são preservadas por linha de origem; alterações em uma fonte já importada exigem revisão.",
+        connectedMode
+          ? "O modo conectado aceita somente XLSX. PDF e XLS ainda não estão disponíveis. Confira empresa dona dos ativos, unidade, sistema, faixa e mapeamento antes de confirmar. Uma aba não é presumida como um sistema."
+          : "Aceita XLSX e PDF de controle Execution Control. Outros PDFs exigem conferência separada. Uma aba não é presumida como um sistema. Confira cabeçalhos, unidade e conteúdo. Repetições de TAG são preservadas por linha de origem; alterações em uma fonte já importada exigem revisão.",
       ),
     );
     const input = el("input");
     input.type = "file";
-    input.accept = ".xlsx,.pdf";
+    input.accept = connectedMode ? ".xlsx" : ".xlsx,.pdf";
     p.append(input);
     button(
       "Ler arquivo e abas",
       async () => {
-        if (!input.files[0]) throw Error("Anexe XLSX ou PDF de controle.");
-        source = await api("sources", {
+        if (!input.files[0]) throw Error(connectedMode ? "Anexe um arquivo XLSX." : "Anexe XLSX ou PDF de controle.");
+        if (connectedMode && !/\.xlsx$/i.test(input.files[0].name))
+          throw Error("O modo conectado aceita somente XLSX. PDF e XLS ainda não estão disponíveis.");
+        if (connectedMode && (input.files[0].size < 1 || input.files[0].size > (connectedCapabilities.xlsxMaxBytes || 8 * 1024 * 1024)))
+          throw Error("A importação de listas XLSX aceita arquivos de até 8 MiB. Originais documentais usam o fluxo de documentos, sem interpretação automática.");
+        const source = await api("sources", {
           name: input.files[0].name,
           base64: await base64(input.files[0]),
         });
-        preview = null;
-        if (source.format === "pdf_control") pdfMapping(p);
-        else importMapping(p);
+        if (source.format === "pdf_control") pdfMapping(p, source);
+        else importMapping(p, source);
       },
       p,
     );
   };
-  function pdfMapping(parent) {
+  function pdfMapping(parent, source) {
     const m = source.metadata;
     parent.append(
       el("h3", "Prévia do controle PDF"),
@@ -1438,7 +1670,6 @@
           companyName: m.companyName,
           system: m.system,
         });
-        preview = p;
         const box = el("div", undefined, "panel");
         box.append(
           el("h3", `${p.rows.length} TAGs preenchidos para conferência`),
@@ -1449,6 +1680,8 @@
           p.rows.map((r) => [r.row, r.values.tag, r.action]),
         );
         p.warnings.forEach((w) => box.append(el("p", w, "notice")));
+        const blockers = p.blockers || [];
+        blockers.forEach((w) => box.append(el("p", w, "notice error")));
         const check = el("input");
         check.type = "checkbox";
         const label = el(
@@ -1457,29 +1690,36 @@
         );
         label.prepend(check);
         box.append(label);
-        button(
+        const commitButton = button(
           "Gravar os registros conferidos do PDF",
           async () => {
+            if (blockers.length) throw Error("Resolva os bloqueios da prévia antes de gravar.");
             if (!check.checked)
               throw Error("Confirme a conferência da prévia.");
-            const result = await api("import/commit", {
-              previewId: p.id,
-              confirm: true,
-            });
-            company = result.company.id;
-            parent.remove();
-            await load();
-            msg(
-              `${result.inserted} registros novos; ${result.unchanged} inalterados. Fonte PDF preservada; sem contrato inventado.`,
-            );
+            commitButton.disabled = true;
+            try {
+              const result = await api("import/commit", {
+                previewId: p.id,
+                confirm: true,
+              });
+              company = result.company.id;
+              parent.remove();
+              await load();
+              msg(
+                `${result.inserted} registros novos; ${result.unchanged} inalterados. Fonte PDF preservada; sem contrato inventado.`,
+              );
+            } finally {
+              commitButton.disabled = blockers.length > 0;
+            }
           },
           box,
         );
+        commitButton.disabled = blockers.length > 0;
         parent.append(box);
       },
     );
   }
-  function importMapping(parent) {
+  function importMapping(parent, source) {
     const panel = el("div");
     parent.append(panel);
     const select = el("select");
@@ -1515,7 +1755,8 @@
       },
       {
         key: "companyName",
-        label: "Nome exato da empresa que consta na fonte",
+        label: connectedMode ? "Nome do cliente destino (conferido no cadastro)" : "Nome exato da empresa que consta na fonte",
+        value: connectedMode ? state?.company.name || "" : undefined,
       },
       {
         key: "companyCell",
@@ -1547,6 +1788,10 @@
         ],
       },
     ];
+    if (connectedMode) fields.splice(2, 0,
+      { key: "sourceCompanyName", label: "Nome literal da empresa na célula original (preservado)" },
+      { key: "ownerMappingEvidence", label: "Confirmação da correspondência com o cliente (obrigatória quando os nomes diferem)", required: false },
+    );
     fields.find((f) => f.key === "companyId").options = [
       ["", "Criar empresa separada"],
       ...Array.from($("company").options)
@@ -1565,7 +1810,7 @@
             mapping[k] = control.col.value.trim().toUpperCase();
           if (control.unit?.value.trim()) units[k] = control.unit.value.trim();
         }
-        preview = await api("import/preview", {
+        const currentPreview = await api("import/preview", {
           ...b,
           sourceId: source.id,
           sheet: select.value,
@@ -1576,11 +1821,13 @@
         box.append(
           el(
             "h3",
-            `Prévia · ${preview.rows.length} registros da faixa ${b.start}–${b.end}`,
+            `Prévia · ${currentPreview.rows.length} registros da faixa ${b.start}–${b.end}`,
           ),
         );
-        preview.warnings.forEach((w) => box.append(el("p", w, "notice")));
-        const keys = Object.keys(preview.mapping);
+        currentPreview.warnings.forEach((w) => box.append(el("p", w, "notice")));
+        const blockers = currentPreview.blockers || [];
+        blockers.forEach((w) => box.append(el("p", w, "notice error")));
+        const keys = Object.keys(currentPreview.mapping);
         table(
           box,
           [
@@ -1589,10 +1836,10 @@
             ...keys.map(
               (k) =>
                 fieldLabel(k) +
-                (preview.units[k] ? " (" + preview.units[k] + ")" : ""),
+                (currentPreview.units[k] ? " (" + currentPreview.units[k] + ")" : ""),
             ),
           ],
-          preview.rows.map((r) => [
+          currentPreview.rows.map((r) => [
             r.row,
             r.action,
             ...keys.map((k) => r.values[k]),
@@ -1609,11 +1856,12 @@
         const commitButton = button(
           "Confirmar gravação desta prévia",
           async () => {
+            if (blockers.length) throw Error("Resolva os bloqueios da prévia antes de gravar.");
             if (!check.checked) throw Error("Confira e confirme a prévia.");
             commitButton.disabled = true;
             try {
               const result = await api("import/commit", {
-                previewId: preview.id,
+                previewId: currentPreview.id,
                 confirm: true,
               });
               company = result.company.id;
@@ -1623,14 +1871,21 @@
                 `Gravados ${result.inserted} novos registros; ${result.unchanged} inalterados. Empresa ${result.company.name}, unidade ${result.unit.name}, sistema ${result.system.name}.`,
               );
             } finally {
-              commitButton.disabled = false;
+              commitButton.disabled = blockers.length > 0;
             }
           },
           box,
         );
+        commitButton.disabled = blockers.length > 0;
         panel.append(box);
       },
     );
+    if (connectedMode) {
+      controls.companyId.value = company || "";
+      controls.companyId.onchange = () => {
+        controls.companyName.value = ownerList.find((owner) => owner.id === controls.companyId.value)?.name || "";
+      };
+    }
     const mapControls = {};
     for (const k of [
       "tag",
@@ -1698,6 +1953,7 @@
         company = r.id;
         p.remove();
         await load();
+        msg(r.reused ? "Cliente já existente selecionado. Nenhum cadastro duplicado foi criado." : "Cliente registrado com a referência documental informada.");
       },
     );
   };
@@ -1731,7 +1987,7 @@
         {
           key: "type",
           label: "Tipo",
-          options: Object.entries(types),
+          options: Object.entries(types).filter(([key]) => !connectedMode || ["linha", "segmento"].includes(key)),
           empty: "Selecione o tipo documentado",
         },
         {
@@ -1803,6 +2059,7 @@
   };
   $("loginForm").onsubmit = async (e) => {
     e.preventDefault();
+    if (accountMode) return;
     try {
       await api("login", Object.fromEntries(new FormData(e.target)));
       e.target.elements.key.value = "";
@@ -1814,19 +2071,67 @@
       msg(e.message, true);
     }
   };
-  $("company").onchange = async () => {
-    company = $("company").value;
+  $("connectedLoginForm").onsubmit = async (e) => {
+    e.preventDefault();
+    if (!connected || connectedError) return;
+    const submit = e.target.querySelector("button");
+    submit.disabled = true;
+    try {
+      await connected.signIn(e.target.elements.email.value.trim(), e.target.elements.password.value);
+      e.target.elements.password.value = "";
+      await connectedStart();
+    } catch (error) { msg(error.message, true); }
+    finally { submit.disabled = false; }
+  };
+  function clearCompanyView() {
+    stateRequest++;
+    if (authOnlyMode) { accountGrant = null; $("workspace").hidden = true; }
     contract = "";
     scope = "";
     page = 1;
+    state = null;
+    $("search").value = "";
+    for (const id of ["unitFilter", "systemFilter", "typeFilter", "rtiFilter"])
+      $(id).value = "";
+    for (const id of ["systems", "assets", "contracts", "indicators"])
+      $(id).replaceChildren();
     $("detail").hidden = true;
     $("tools").replaceChildren();
+    flow?.render();
+  }
+  $("company").onchange = async () => {
+    company = $("company").value;
+    clearCompanyView();
     await load().catch((e) => msg(e.message, true));
+  };
+  $("tenant").onchange = async () => {
+    if (!connected) return;
+    if (authOnlyMode) {
+      authOnlyTenant = $("tenant").value || null;
+      company = "";
+      clearCompanyView();
+      $("workspace").hidden = true;
+      connectedPermissions(false);
+      if (authOnlyTenant) await loadAccountWorkspace().catch((error) => msg(error.message, true));
+      return;
+    }
+    connected.setTenant($("tenant").value || null);
+    connectedCapabilities = {};
+    company = "";
+    clearCompanyView();
+    $("company").replaceChildren();
+    connectedPermissions(false);
+    $("workspace").hidden = true;
+    if (connected.getTenant()) await load().catch((error) => msg(error.message, true));
+    else msg("Selecione a empresa de acesso para consultar os ativos.");
   };
   $("refresh").onclick = () => refresh().catch((e) => msg(e.message, true));
   $("logout").onclick = async () => {
-    await api("logout", {});
-    location.reload();
+    try {
+      if (accountMode) await connected.signOut();
+      else await api("logout", {});
+      location.reload();
+    } catch (error) { msg(error.message, true); }
   };
   for (const id of [
     "search",
@@ -1837,18 +2142,7 @@
   ])
     $(id).addEventListener(id === "search" ? "input" : "change", () => {
       page = 1;
-      if (id === "unitFilter") {
-        options(
-          $("systemFilter"),
-          state.system
-            .filter(
-              (s) =>
-                !$("unitFilter").value || s.unitId === $("unitFilter").value,
-            )
-            .map((s) => [s.id, s.name]),
-          "Todos",
-        );
-      }
+      if (id === "unitFilter" && state) systemOptions();
       assets();
     });
   $("previous").onclick = () => {
@@ -1866,7 +2160,153 @@
     document.body.classList.toggle("no-motion", $("reduceMotion").checked);
     localStorage.setItem("pires-no-motion", String($("reduceMotion").checked));
   };
-  api("status")
-    .then(load)
-    .catch((e) => msg(e.message));
+  const flowContext = () => ({
+      authenticated: !$("workspace").hidden && (!authOnlyMode || Boolean(accountGrant && accountGrant.tenant === authOnlyTenant && accountGrant.userId === accountUserId && accountGrant.generation === stateRequest)),
+      tenantId: authOnlyMode ? authOnlyTenant : connectedMode ? connected?.getTenant() : null,
+      client: state?.company && state.company.id === company ? state.company : null,
+      clients: ownerList,
+      state, mode: authOnlyMode ? "account" : connectedMode ? "connected" : "local",
+      write: connectedMode && connectedCapabilities.write === true && connectedCapabilities.operations === true,
+      capabilities: connectedCapabilities,
+    });
+  function operationalError(error) {
+    if ([401, 403].includes(error.status)) requireLogin();
+    msg(error.message, true);
+  }
+  async function downloadSource(sourceId) {
+    if (connectedMode) {
+      const { blob, name } = await connected.download(path("sources/" + sourceId)),
+        url = URL.createObjectURL(blob), anchor = el("a");
+      anchor.href = url; anchor.download = name; document.body.append(anchor); anchor.click(); anchor.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } else {
+      const anchor = el("a"); anchor.href = "/api/" + path("sources/" + sourceId);
+      document.body.append(anchor); anchor.click(); anchor.remove();
+    }
+  }
+  if (window.PiresGestaoOperations) operational = window.PiresGestaoOperations.create({
+    getContext: flowContext,
+    write: (operation, body) => api(path(operation), body),
+    upload: (file) => connected.uploadDocument(file),
+    uploadPrepared: (referenceId) => connected.request("sources/reference", {referenceId}),
+    uploadPhoto: (file) => connected.uploadPhoto(file),
+    refresh,
+    onError: operationalError,
+    onSuccess: (result, operation) => {
+      msg(result.rti?.id ? "Recomendação e RTI salvas. A mesma RTI já está disponível na gestão." : "Registro salvo e recarregado do banco.");
+      if (operation === "field-items") window.location.hash = window.PiresGestaoFlow.routeHash(company, "integridade", "item", result.id, result.contractId || "");
+    },
+  });
+  if (window.PiresGestaoFlow) flow = window.PiresGestaoFlow.create({
+    container: $("flowView"), breadcrumb: $("flowBreadcrumb"), back: $("flowBack"), legacy: $("legacyPanels"),
+    getContext: flowContext,
+    async onSelectClient(id) {
+      if (id && !ownerList.some(item => item.id === id)) return;
+      company = id; $("company").value = id; clearCompanyView();
+      await load().catch(error => msg(error.message, true));
+    },
+    onOperation: (parent, operation, defaults) => operational?.render(parent, operation, defaults),
+    onProjectRequest: (operation, body) => { msg(""); return api(path(operation), body); },
+    onProjectRefresh: refresh,
+    async onProjectUpload(file) {
+      if (!file || !/\.xlsx$/i.test(file.name) || file.size > 8 * 1024 * 1024) throw Error("Selecione uma lista XLSX de até 8 MiB.");
+      const originalCompany = company, originalTenant = connected.getTenant();
+      const base64 = await new Promise((resolve,reject) => { const reader = new FileReader(); reader.onload=()=>resolve(String(reader.result).split(',')[1]); reader.onerror=()=>reject(Error('Falha ao ler a lista.')); reader.readAsDataURL(file); });
+      if (company !== originalCompany || connected.getTenant() !== originalTenant) throw Error('O contexto mudou. Selecione o arquivo novamente.');
+      return api('sources', {name:file.name, base64});
+    },
+    onAssets(module, contractId, systemId) {
+      if (!state) return;
+      activeModule = module;
+      contract = state.contract.some((item) => item.id === contractId && item.modules.includes(module)) ? contractId : "";
+      scope = module;
+      if (systemId) { const system = state.system.find((s) => s.id === systemId); if (system) { $("unitFilter").value = system.unitId; systemOptions(system.id); } }
+      systems(); contracts(); assets();
+    },
+    onLegacyBook: (id) => detail(id),
+    onHistory: (id) => api(path("history/" + id)),
+    onBook: (id) => api(path("book/" + id)),
+    onDownload: (asset) => downloadSource(asset.source.sourceId),
+    onDownloadSource: downloadSource,
+    async onPhoto(photo) {
+      const sourceId = photo.source?.sourceId || photo.sourceId;
+      if (!sourceId) throw Error("Fonte original da foto não disponível.");
+      const { blob } = await connected.download(path("sources/" + sourceId));
+      if (!["image/jpeg", "image/png"].includes(blob.type) || blob.size > 8 * 1024 * 1024) throw Error("A fonte não é uma fotografia JPEG/PNG suportada.");
+      return new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = () => reject(Error("Não foi possível abrir a fotografia original.")); reader.readAsDataURL(blob); });
+    },
+    async onReport(systemId, campaignId) {
+      const ownerId = company, tenantId = connected.getTenant(), helper = window.PiresGestaoReportPDF,
+        current = () => company === ownerId && connected.getTenant() === tenantId && !$("workspace").hidden;
+      if (!helper?.createPdf || !helper?.normalizePhoto) throw Error("O gerador de rascunho está indisponível.");
+      msg("Consultando os registros persistidos do sistema para montar o rascunho...");
+      const snapshot = await api(path("reports/" + (campaignId ? "campaign/" + campaignId : "system/" + systemId)));
+      if (!current()) return;
+      if (snapshot.company?.id !== ownerId || snapshot.system?.id !== systemId || campaignId && snapshot.campaign?.id !== campaignId || snapshot.draft !== true || snapshot.canIssue !== false)
+        throw Error("Não foi possível confirmar o escopo do rascunho retornado pela API.");
+      const images = new Map(), originals = new Map(), pending = [];
+      for (const photo of snapshot.photos || []) {
+        if (!current()) return;
+        const sourceId = photo.source?.sourceId || photo.sourceId;
+        if (!sourceId) { pending.push(photo.id); continue; }
+        msg("Carregando fotografia original " + (images.size + pending.length + 1) + " de " + snapshot.photos.length + "...");
+        try {
+          if (!originals.has(sourceId)) originals.set(sourceId, connected.download(path("sources/" + sourceId)));
+          const { blob } = await originals.get(sourceId);
+          if (!current()) return;
+          if (!["image/jpeg", "image/png"].includes(blob.type) || blob.size > 8 * 1024 * 1024) throw Error("Formato de fotografia não suportado.");
+          images.set(photo.id, await helper.normalizePhoto(new Uint8Array(await blob.arrayBuffer()), blob.type));
+        } catch (error) {
+          if ([401, 403].includes(error.status)) { operationalError(error); throw error; }
+          pending.push(photo.id);
+        }
+      }
+      if (!current()) return;
+      const result = await helper.createPdf(snapshot, images);
+      if (!current()) return;
+      if (!result?.doc || result.metadata?.draft !== true || result.metadata?.canIssue !== false) throw Error("O gerador não confirmou a identificação de rascunho.");
+      result.doc.save(result.filename || "relatorio-integridade-" + systemId + "-rascunho.pdf");
+      msg("Rascunho do sistema gerado com os dados persistidos e as fotos disponíveis. Não é emissão nem aprovação técnica." + (pending.length || result.metadata.pending?.length ? " Existem pendências documentadas no PDF; confira fontes, itens e fotos ausentes." : ""));
+    },
+    onError: operationalError,
+  });
+  if (authOnlyMode && connected && !connectedError) {
+    const verifyAccount = () => {
+      if (authOnlyTenant && $("login").hidden)
+        loadAccountWorkspace().catch((error) => msg(error.message, true));
+    };
+    if (typeof connected.subscribe === "function") {
+      try {
+        connected.subscribe((event, session) => {
+          if (event === "SIGNED_OUT" || session?.user?.id && accountUserId && session.user.id !== accountUserId) {
+            requireLogin();
+            msg("Sessão encerrada ou alterada. Entre novamente para continuar.");
+          } else if (["TOKEN_REFRESHED", "USER_UPDATED"].includes(event)) setTimeout(verifyAccount, 0);
+        });
+      } catch { /* Focus and periodic checks still verify the existing account. */ }
+    }
+    window.addEventListener("focus", verifyAccount);
+    setInterval(verifyAccount, 60000);
+  }
+  if (accountMode) {
+    $("loginTitle").textContent = "Acessar Gestão de Ativos";
+    $("localLoginHelp").hidden = true;
+    $("loginForm").hidden = true;
+    $("connectedLoginHelp").hidden = false;
+    $("connectedLoginForm").hidden = false;
+    $("companyLabel").textContent = "Cliente";
+    $("environmentNotice").textContent = authOnlyMode
+      ? "Gestão de Ativos · avaliação das telas e do fluxo. A conta e a licença existentes protegem o acesso. O cadastro operacional de clientes, contratos e campanhas ainda não está disponível nesta publicação."
+      : "Gestão conectada à conta do aplicativo. A API valida o acesso individual ao piloto; clientes, listas e registros disponíveis persistem no espaço da empresa de acesso selecionada. Fontes históricas não confirmam situação técnica atual.";
+    $("calculatorsLink").href = connected?.config.appUrl || "/";
+    if (authOnlyMode) {
+      options($("rtiFilter"), [], "Indisponível neste modo");
+      $("rtiFilter").disabled = true;
+    }
+    connectedPermissions(false);
+    if (connectedError) {
+      $("connectedLoginForm").querySelector("button").disabled = true;
+      msg(connectedError.message, true);
+    } else connectedStart().catch((error) => msg(error.message, true));
+  } else api("status").then(load).catch((error) => msg(error.message));
 })();

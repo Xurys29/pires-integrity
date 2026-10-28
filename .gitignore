@@ -5,3 +5,13 @@ node_modules/
 output/
 *.pdf
 *.zip
+
+*.private.json
+*.clixml
+*.local.*
+.pires-private/
+.supabase/
+supabase/.temp/
+.supabase/.branches/
+release/verification-local.json
+!*.example.json

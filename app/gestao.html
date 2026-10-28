@@ -5,26 +5,45 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Pires Integridade | Gestão de Ativos</title>
     <link rel="stylesheet" href="gestao.css" />
+    <link rel="stylesheet" href="gestao-design.css" />
+    <link rel="stylesheet" href="gestao-projects.css" />
+    <script src="runtime-config.js" defer></script>
+    <script src="gestao-root.js" defer></script>
+    <script src="vendor/supabase.js" defer></script>
+    <script src="access-policy.js" defer></script>
+    <script src="cloud.js" defer></script>
+    <script src="gestao-connected.js" defer></script>
     <script src="nr13.js" defer></script>
+    <script src="gestao-asset-cards.js" defer></script>
+    <script src="gestao-project-model.js" defer></script>
+    <script src="gestao-project-pdf.js" defer></script>
+    <script src="gestao-projects.js" defer></script>
+    <script src="gestao-flow.js" defer></script>
+    <script src="gestao-workflow.js" defer></script>
+    <script src="gestao-operations.js" defer></script>
+    <script src="vendor/pdf.js" defer></script>
+    <script src="gestao-report-pdf.js" defer></script>
     <script src="gestao.js" defer></script>
   </head>
   <body>
-    <header>
-      <b>PIRES INTEGRIDADE</b><span>Gestão de Ativos · teste privado</span
-      ><label><input type="checkbox" id="reduceMotion" /> Sem animação</label
-      ><button id="logout" hidden>Sair</button>
+    <a class="skip-link" href="#flowView">Ir para o conteúdo</a>
+    <header class="app-header">
+      <a class="brand" href="/" aria-label="Pires Integrity, área de trabalho"><span class="logo-window"><img src="assets/pires-logo-original.jpeg" alt="Pires Integrity" width="904" height="1280" /></span></a>
+      <div class="header-title"><span>PIRES INTEGRITY</span><strong>Gestão de Ativos</strong></div>
+      <div class="header-utilities"><label class="motion-control"><input type="checkbox" id="reduceMotion" /> Reduzir animações</label><button id="logout" class="secondary" hidden>Sair</button></div>
     </header>
     <main>
-      <p><a href="calculadoras">Calculadoras e relatórios existentes</a></p>
-      <p class="notice">
-        Persistência em banco privado desta instância da nuvem. Sem conexão com
-        produção. Dados e anexos não são publicados junto ao site. Acesso único
-        de teste; não é um portal de clientes.
+      <div class="workspace-links"><a id="calculatorsLink" href="/">← Área de trabalho</a><span>Inspeções, recomendações e histórico do ativo</span></div>
+      <details class="environment-details"><summary>Sobre este ambiente</summary><p id="environmentNotice">
+        Cadastro e acompanhamento de ativos em ambiente privado. Dados e anexos
+        persistem nesta instância. Acesso por chave do ambiente; o operador é
+        identificado pelo nome informado. Sem sincronização com produção.
       </p>
+      </details>
       <p id="message" role="status" aria-live="polite"></p>
       <section id="login" class="panel">
-        <h1>Acessar gestão privada</h1>
-        <p>
+        <h1 id="loginTitle">Acessar gestão privada</h1>
+        <p id="localLoginHelp">
           Use a chave disponível no terminal privado do ambiente, em
           /workspace/.pires-private/access-key. Não envie a chave pelo chat.
         </p>
@@ -43,19 +62,38 @@
               autocomplete="current-password" /></label
           ><button>Entrar</button>
         </form>
+        <p id="connectedLoginHelp" hidden>
+          Use a mesma conta do aplicativo. A empresa de acesso autoriza o espaço
+          de trabalho; a empresa dona dos ativos é selecionada separadamente.
+        </p>
+        <form id="connectedLoginForm" hidden>
+          <label>E-mail da conta<input name="email" type="email" required autocomplete="email" /></label>
+          <label>Senha da conta<input name="password" type="password" required autocomplete="current-password" /></label>
+          <button>Entrar com minha conta</button>
+        </form>
+      </section>
+      <section id="tenantAccess" class="account-context" aria-label="Organização de acesso" hidden>
+        <label>Organização de acesso<select id="tenant"></select></label>
+        
+        <p id="connectedWriteNotice" hidden>Este vínculo permite consulta. Cadastros e importação exigem autorização de Gestão.</p>
       </section>
       <div id="workspace" hidden>
-        <nav>
-          <label>Empresa<select id="company"></select></label
-          ><button id="newCompany">Cadastrar empresa com fonte</button
+        <nav class="client-toolbar" aria-label="Cliente e cadastro">
+          <label><span id="companyLabel">Cliente</span><select id="company"></select></label
+          ><button id="newCompany">+ Cadastrar cliente</button
           ><button id="importButton">Importar lista XLSX</button
           ><button id="refresh">Atualizar</button>
         </nav>
+        <nav id="flowNavigation" aria-label="Navegação da Gestão de Ativos">
+          <div id="flowBreadcrumb"></div><button id="flowBack" type="button" hidden>Voltar</button>
+        </nav>
+        <section id="flowView" tabindex="-1" aria-live="polite"></section>
         <section id="tools"></section>
+        <div id="legacyPanels" hidden>
         <section id="contracts" class="panel"></section>
         <section id="indicators" class="panel"></section>
         <section id="systems" class="grid"></section>
-        <section class="panel">
+        <section id="assetListPanel" class="panel">
           <h2>Linhas e equipamentos</h2>
           <div class="filters">
             <label
@@ -68,17 +106,18 @@
             ><label
               >RTIs<select id="rtiFilter">
                 <option value="">Todas</option>
-                <option value="open">Com RTI aberta</option>
+                <option value="open">Com RTI atual confirmada aberta</option>
                 <option value="none">
-                  Sem RTI aberta (não significa aprovação)
+                  Sem abertura atual confirmada (não significa aprovação)
                 </option>
               </select></label
             ><button id="newAsset">Cadastrar ativo</button>
           </div>
           <p class="legend">
-            <span class="light green"></span> Verde: apenas Em operação.
-            <span class="light red"></span> Vermelho: RTI aberta. Condição
-            técnica e prazos são independentes.
+            Indicador externo verde: em operação. Indicador externo vermelho:
+            fora de operação ou descontinuado, com motivo textual. Card vermelho:
+            RTI atual confirmada aberta. RTIs históricas mostram a situação da
+            fonte e a atualidade desconhecida. Operação, condição técnica e prazos são independentes.
           </p>
           <div id="assets" class="grid"></div>
           <div class="pager">
@@ -87,6 +126,7 @@
           </div>
         </section>
         <section id="detail" class="panel" hidden></section>
+        </div>
       </div>
     </main>
   </body>

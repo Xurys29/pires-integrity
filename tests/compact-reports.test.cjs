@@ -3,8 +3,8 @@ const { test } = require("node:test"),
   assert = require("node:assert/strict"),
   { jsPDF } = require("jspdf");
 const compact = require("../app/compact-report-pdf.js"),
-  full = require("../app/calculator-pdf.js"),
-  ME = require("../app/me-pdf.js"),
+  full = require("../legacy-cloud/app/calculator-pdf.js"),
+  ME = require("../legacy-cloud/app/me-pdf.js"),
   batch = require("../app/me-batch.js"),
   { fixture } = require("./calculator-pdf.fixture.cjs");
 function capture(rows) {

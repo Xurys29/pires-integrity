@@ -1,13 +1,13 @@
 'use strict';
-const fs=require('node:fs'),path=require('node:path'),cp=require('node:child_process');
-const root=path.resolve(__dirname,'..');
-const demo=fs.readFileSync(path.join(root,'app','runtime-config.js'),'utf8');
-if(!/^window\.PIRES_CONFIG = Object\.freeze\(\{mode:'demo'\}\);\s*$/.test(demo)) throw Error('The portable handoff must keep its credential-free demo configuration.');
-for(const folder of ['app','site','scripts','tests','lib']) for(const file of fs.readdirSync(path.join(root,folder),{recursive:true})) {
- const p=path.join(root,folder,file); if(!fs.statSync(p).isFile()) continue;
- if(/\.(?:js|cjs|html|css|txt|xml)$/.test(file) && /sb_(?:publishable|secret)_[A-Za-z0-9_-]{16,}|-----BEGIN (?:RSA )?PRIVATE KEY-----/.test(fs.readFileSync(p,'utf8'))) throw Error(`Credential-shaped value found in ${folder}/${file}.`);
- if(/\.(?:js|cjs)$/.test(file)) {
-  const result=cp.spawnSync(process.execPath,['--check',p],{encoding:'utf8'}); if(result.status!==0){process.stderr.write(result.stderr);process.exit(result.status||1);}
+const fs=require('node:fs'),path=require('node:path'),cp=require('node:child_process'),root=path.resolve(__dirname,'..');
+const files=cp.execFileSync('git',['ls-files','--cached','--others','--exclude-standard','-z'],{cwd:root}).toString().split('\0').filter(Boolean);
+let checked=0;
+for(const file of files){const p=path.join(root,file);if(!fs.existsSync(p)||!fs.statSync(p).isFile())continue;
+ if(/\.(?:js|cjs|mjs|ts|html|css|txt|xml|json|sql|toml|md)$/.test(file)){
+ const text=fs.readFileSync(p,'utf8');
+ if(/sb_(?:publishable|secret)_[A-Za-z0-9_-]{16,}|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|gh[pousr]_[A-Za-z0-9]{30,}|eyJ[A-Za-z0-9_-]{20,}\.eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}/.test(text))throw Error('Credential-shaped value in '+file);
  }
+ if(/\.(?:js|cjs|mjs)$/.test(file)){const r=cp.spawnSync(process.execPath,['--check',p],{encoding:'utf8'});if(r.status!==0){process.stderr.write(r.stderr);process.exit(r.status||1);}checked++;}
 }
-console.log('JavaScript syntax checks passed.');
+console.log('Syntax and credential-pattern checks passed: '+checked+' JavaScript files.');
+

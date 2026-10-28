@@ -191,7 +191,7 @@
       for (const part of parts) paragraph(part.text, part);
       doc.setDrawColor(...COLORS.line); doc.line(M, y, RIGHT, y); y += 4;
     }
-    newPage(); if (!life || metadata.equipmentPhotoDataUrl) equipmentPhoto();
+    newPage(); equipmentPhoto();
     paragraph(subtitle, { size: 10, lineHeight: 5, color: COLORS.muted });
     if (metadata.fictitious === true) notice('DEMONSTRAÇÃO FICTÍCIA. Dados e imagens não associados à avaliação de equipamento real.');
     section('01 - Identificação e rastreabilidade');
@@ -251,7 +251,6 @@
       formula('Volume de um tampo elipsoidal 2:1', 'V_tampo [m³] = pi x (D [mm]/1000)³ / 24', `V_tampo = pi x (${D}/1000)³ / 24`, unit(r.oneHeadVolume, 'm³'));
       formula('Volume geométrico total', 'V_total [m³] = V_cilindro [m³] + 2 x V_tampo [m³]', `V_total = ${number(r.cylinderVolume)} + 2 x ${number(r.oneHeadVolume)}`, unit(r.volume, 'm³'));
     } else {
-      newPage(); // Keep the identification sheet clean; history and formulas start on the next sheet.
       section('02 - Medições, histórico e premissas');
       notice('Este memorial estima perda uniforme de espessura pelo histórico informado. A projeção linear não avalia fadiga, mecânica da fratura ou a vida em ciclos exigida pela ASME VIII, Divisão 3. A referência mínima precisa ter sua própria base documentada.');
       table(['Parâmetro', 'Entrada declarada'], [['Ponto / componente', d.point], ['Espessura atual', unit(r.current, 'mm')], ['Data da medição atual', date(d.currentDate)], ['Espessura anterior', unit(r.previous, 'mm')], ['Data anterior / início da hipótese', date(d.previousDate)], ['Origem da espessura anterior', choiceLabel('origin', d.previousOrigin)], ['Espessura mínima', unit(r.minimum, 'mm')], ['Natureza da espessura mínima', choiceLabel('minimum', d.minimumKind)], ['Mecanismo considerado', choiceLabel('mechanism', d.mechanism)], ['Correspondência e serviço comparável', d.comparable === true ? 'Confirmados pelo avaliador' : 'Não confirmados'], ['Critério da taxa', choiceLabel('policy', r.policy)], ['Histórico inicial de longo prazo', r.longInterval ? 'Incluído nesta avaliação' : 'Não utilizado'], ...(r.longInterval ? [['Espessura inicial', `${inputNumber(d.initial)} mm`], ['Data inicial', date(d.initialDate)], ['Origem da espessura inicial', choiceLabel('origin', d.initialOrigin)]] : [])]);
@@ -336,7 +335,7 @@
       doc.setPage(page); doc.setDrawColor(...COLORS.line); doc.line(M, 276, RIGHT, 276);
       font('normal', 7.1, COLORS.muted); doc.text('AVALIAÇÃO INDICATIVA | Revisão técnica pendente', M, 282); doc.text(`${page} / ${pageCount}`, RIGHT, 282, { align: 'right' });
     }
-    const outputMetadata = { version: VERSION, layoutVersion: life ? 'life-clean-1' : 'full-pmta-3', reportNumber, revision, mode: r.mode, pageCount, index, engineVersion: snapshot.engineVersion || r.version, technicalSigned: false, digitallySigned: false, selectableText: true, photoAttached, projected: life ? ['estimated', 'hypothesis'].includes(r.status) && r.remainingYears > 0 && d.mechanism === 'uniform' : false };
+    const outputMetadata = { version: VERSION, reportNumber, revision, mode: r.mode, pageCount, index, engineVersion: snapshot.engineVersion || r.version, technicalSigned: false, digitallySigned: false, selectableText: true, photoAttached, projected: life ? ['estimated', 'hypothesis'].includes(r.status) && r.remainingYears > 0 && d.mechanism === 'uniform' : false };
     doc.piresCalculatorReportMetadata = outputMetadata;
     return { doc, metadata: outputMetadata };
   }

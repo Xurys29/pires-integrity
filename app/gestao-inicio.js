@@ -1,0 +1,4 @@
+'use strict';
+(async()=>{const $=id=>document.getElementById(id);try{const api=window.PiresTeamAPI.create(window.PIRES_CONFIG),user=await api.user();if(!user?.email_confirmed_at)throw Error('Entre com sua conta individual para acessar a Gestão.');const organizations=await api.organizations();let selected=null;for(const organization of organizations){api.setTenant(organization.id);try{const status=await api.call('status');selected={organization,status};break;}catch{}}
+ if(!selected)throw Error('Esta conta não possui acesso autorizado à equipe.');$('managementOrganization').textContent=selected.organization.name;$('managementOptions').hidden=false;$('managementMessage').textContent='';if(!selected.status.manager){$('managementClients').hidden=true;$('clientsRestricted').hidden=false;}
+ }catch(e){$('managementMessage').textContent=e.message;$('managementLogin').hidden=false;}})();
