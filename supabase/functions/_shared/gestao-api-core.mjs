@@ -372,6 +372,12 @@ export function createGestaoHandler({ appOrigin, createUserClient, createService
           return json(200, await call("history.get", { ownerId, assetId: parts[3].toLowerCase() }));
         if (!write && parts.length === 4 && parts[2] === "book" && UUID.test(parts[3]))
           return json(200, await call("book.get", { ownerId, assetId: parts[3].toLowerCase() }));
+        if (parts[2] === "reports" && parts[3] === "contracts") {
+          if (write) fail(405, "method_not_allowed", "Relatórios usam somente leitura do escopo indicado no caminho.");
+          if (parts.length !== 7 || !UUID.test(parts[4]) || !["system", "campaign"].includes(parts[5]) || !UUID.test(parts[6]))
+            fail(400, "invalid_report_scope", "Contrato e sistema ou campanha devem estar identificados no caminho.");
+          return json(200, await call("reports.system", { ownerId, contractId: parts[4].toLowerCase(), [parts[5] === "system" ? "systemId" : "campaignId"]: parts[6].toLowerCase() }));
+        }
         if (!write && parts.length === 5 && parts[2] === "reports" && ["system", "campaign"].includes(parts[3]) && UUID.test(parts[4]))
           return json(200, await call("reports.system", { ownerId, [parts[3] === "system" ? "systemId" : "campaignId"]: parts[4].toLowerCase() }));
         if (write && parts.length === 3 && Object.hasOwn(CREATE_ACTIONS, parts[2]))

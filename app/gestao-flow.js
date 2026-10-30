@@ -522,16 +522,16 @@
           if (withoutInspection) panel.append(el("p", withoutInspection + " TAGs sem inspeção registrada neste escopo", "muted"));
           link(panel, "Abrir TAGs deste sistema", module, "ativos", system.id, current.contractId);
           if (options.onReport) {
-            const button = el("button", "Gerar rascunho completo deste sistema"); button.type = "button";
-            button.onclick = async () => { button.disabled = true; try { await options.onReport(system.id); } catch (error) { options.onError?.(error); } finally { button.disabled = false; } };
+            const button = el("button", selectedScope ? "Gerar rascunho deste sistema no projeto" : "Gerar rascunho do acervo geral deste sistema"); button.type = "button";
+            button.onclick = async () => { button.disabled = true; try { await options.onReport(system.id, undefined, current.contractId); } catch (error) { options.onError?.(error); } finally { button.disabled = false; } };
             panel.append(button);
           }
           const campaigns = records("campaign").filter((c) => c.systemId === system.id && c.module === module && (!current.contractId || c.contractId === current.contractId));
           for (const campaign of campaigns) {
             const group = section(panel, campaign.name, "Campanha · " + campaign.status);
             if (options.onReport) {
-              const button = el("button", "Gerar rascunho do relatório deste sistema"); button.type = "button";
-              button.onclick = async () => { button.disabled = true; try { await options.onReport(system.id, campaign.id); } catch (error) { options.onError?.(error); } finally { button.disabled = false; } };
+              const button = el("button", selectedScope ? "Gerar rascunho desta campanha no projeto" : "Gerar rascunho desta campanha"); button.type = "button";
+              button.onclick = async () => { button.disabled = true; try { await options.onReport(system.id, campaign.id, current.contractId); } catch (error) { options.onError?.(error); } finally { button.disabled = false; } };
               group.append(button);
             }
           }

@@ -222,6 +222,32 @@ test("relatório por sistema ou campanha usa somente leitura canônica e mantém
   assert.equal(requests.length, 2);
 });
 
+test("relatório do projeto conserva contrato no caminho e rejeita overrides e caminhos fora da allowlist", async () => {
+  const snapshot = { contract: { id: tenantB, name: "Contrato fixture" }, draft: true, canIssue: false };
+  const { adapter, requests } = setup({ respond: () => Response.json(snapshot) });
+  adapter.setTenant(tenantA);
+  for (const target of [`system/${userId}`, `campaign/${userId}`]) {
+    const route = `companies/${ownerCompany}/reports/contracts/${tenantB}/${target}`;
+    assert.deepEqual(await adapter.request(route), snapshot);
+    assert.ok(requests.at(-1).url.endsWith("/" + route));
+    assert.equal(requests.at(-1).method, "GET");
+    assert.equal(requests.at(-1).body, undefined);
+    assert.equal(new Headers(requests.at(-1).headers).get("X-Pires-Tenant"), tenantA);
+    await assert.rejects(adapter.request(route, { contractId: tenantA, ownerId: userId, systemId: tenantA }), error => error.code === "unsupported_operation");
+  }
+  for (const route of [
+    `companies/${ownerCompany}/reports/contracts/${tenantB}/system/${userId}?contractId=${tenantA}`,
+    `companies/${ownerCompany}/reports/contracts/${tenantB}/campaign/${userId}?ownerId=${tenantB}`,
+    `companies/${ownerCompany}/reports/contracts/not-a-uuid/system/${userId}`,
+    `companies/${ownerCompany}/reports/contracts/${tenantB}/system/not-a-uuid`,
+    `companies/${ownerCompany}/reports/contracts/${"-".repeat(36)}/system/${userId}`,
+    `companies/${ownerCompany}/reports/contracts/${tenantB}/system/${"-".repeat(36)}`,
+    `companies/${ownerCompany}/reports/contracts/${tenantB}/assets/${userId}`,
+    `companies/${ownerCompany}/reports/contracts/${tenantB}/system/${userId}/extra`,
+  ]) await assert.rejects(adapter.request(route), error => error.code === "unsupported_operation");
+  assert.equal(requests.length, 2);
+});
+
 test("upload documental é binário, limitado e autenticado, sem base64 nem invocar importador", async () => {
   const response = { id: "a".repeat(64), format: "document_pdf", sheets: [], metadata: { extraction: "not_performed" } };
   const { adapter, requests } = setup({ respond: () => Response.json(response) });

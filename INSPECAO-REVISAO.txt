@@ -106,3 +106,13 @@ Não houve deploy, migração em produção, modificação persistente de permis
 emissão técnica ou envio a cliente. Main, branch de origem e checkout anterior
 foram preservados. O resultado é uma implementação local para revisão com
 dependências externas e limites de autorização explícitos.
+
+Atualização de revisão em 30/10/2026
+Os três defeitos encontrados na validação de 29/10 foram corrigidos no PR:
+escopo contratual do relatório, falsa contagem de emissão por evento de plano
+e fila incoerente com o escopo da campanha. Histórico e rascunhos preservados.
+Validação atual: npm test com 191 testes, 188 aprovados, zero falhas e 3 ignorados;
+check em 111 arquivos JS; 32 cenários de navegador aprovados com APIs simuladas.
+O detalhamento e os limites atuais estão em INSPECAO-CORRECOES-20261030.md.
+As pendências de acesso operacional, catálogo, relatórios individuais, PLH,
+assinatura e isométrico continuam abertas. Nenhuma alteração foi publicada.

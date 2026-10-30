@@ -350,6 +350,40 @@ test("relatório usa escopo canônico do caminho, exige piloto e preserva rascun
   assert.equal(h.serviceCount(), 0);
 });
 
+test("relatório contratual usa somente IDs canônicos do caminho e não aceita corpo, query ou caminho inválido", async () => {
+  const contractId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", targetId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const snapshot = { company: { id: OWNER }, contract: { id: contractId, name: "Projeto isolado" }, system: { id: targetId }, draft: true, canIssue: false };
+  const h = await setup({ rpc: async (_name, args) => {
+    assert.equal(args.p_action, "reports.system");
+    return { data: snapshot, error: null };
+  } });
+  for (const target of ["system", "campaign"]) {
+    const route = `companies/${OWNER}/reports/contracts/${contractId.toUpperCase()}/${target}/${targetId.toUpperCase()}`;
+    assert.deepEqual((await h.send(route)).data, snapshot);
+    assert.deepEqual(h.events.findLast(e => e.args?.p_action === "reports.system").args, {
+      p_tenant: TENANT, p_action: "reports.system", p_payload: { ownerId: OWNER, contractId, [target === "system" ? "systemId" : "campaignId"]: targetId },
+    });
+    assert.equal((await h.send(route, { body: { contractId: OTHER, ownerId: OTHER, systemId: OTHER, campaignId: OTHER } })).status, 405);
+    assert.equal((await h.send(route + `?contractId=${OTHER}`)).status, 400);
+    assert.equal((await h.send(route + `?ownerId=${OTHER}`)).status, 400);
+  }
+  const calls = h.events.filter(e => e.args?.p_action === "reports.system").length;
+  for (const suffix of [
+    `not-a-uuid/system/${targetId}`, `${contractId}/system/not-a-uuid`, `${contractId}/assets/${targetId}`,
+    `${contractId}/system/${targetId}/extra`, `${contractId}/campaign`, `${contractId}/system/${targetId}/`,
+  ]) assert.equal((await h.send(`companies/${OWNER}/reports/contracts/${suffix}`)).status, 400);
+  assert.equal(h.events.filter(e => e.args?.p_action === "reports.system").length, calls);
+  const denied = await setup({ grant: { pilot: false } });
+  assert.equal((await denied.send(`companies/${OWNER}/reports/contracts/${contractId}/system/${targetId}`)).status, 403);
+  assert.equal(denied.events.some(e => e.args?.p_action === "reports.system"), false);
+  const foreignScope = await setup({ rpc: async (_name, args) => {
+    assert.deepEqual(args.p_payload, { ownerId: OWNER, contractId, campaignId: targetId });
+    return { error: { code: "42501" } };
+  } });
+  assert.equal((await foreignScope.send(`companies/${OWNER}/reports/contracts/${contractId}/campaign/${targetId}`)).status, 403);
+  assert.equal(h.serviceCount(), 0);
+});
+
 test("recomendação registrada retorna a RTI canônica da mesma transação sem nova criação ou atualidade inferida", async () => {
   const canonical = { finding: { id: ASSET }, rti: { id: OTHER, currentness: "unknown", status: "atualidade_desconhecida", sourceStatus: "ABERTA", sourceDate: "2020-01-01" } };
   const h = await setup({ rpc: async (_name, args) => {

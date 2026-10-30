@@ -2238,14 +2238,16 @@
       if (!["image/jpeg", "image/png"].includes(blob.type) || blob.size > 8 * 1024 * 1024) throw Error("A fonte não é uma fotografia JPEG/PNG suportada.");
       return new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = () => reject(Error("Não foi possível abrir a fotografia original.")); reader.readAsDataURL(blob); });
     },
-    async onReport(systemId, campaignId) {
-      const ownerId = company, tenantId = connected.getTenant(), helper = window.PiresGestaoReportPDF,
-        current = () => company === ownerId && connected.getTenant() === tenantId && !$("workspace").hidden;
+    async onReport(systemId, campaignId, contractId = "") {
+      const ownerId = company, tenantId = connected.getTenant(), routeHash = window.location.hash, helper = window.PiresGestaoReportPDF,
+        current = () => company === ownerId && connected.getTenant() === tenantId && window.location.hash === routeHash && !$("workspace").hidden;
+      if (contractId && !state.contract.some(record => record.id === contractId && record.modules?.includes("integridade")))
+        throw Error("O contrato selecionado não está disponível para este rascunho.");
       if (!helper?.createPdf || !helper?.normalizePhoto) throw Error("O gerador de rascunho está indisponível.");
-      msg("Consultando os registros persistidos do sistema para montar o rascunho...");
-      const snapshot = await api(path("reports/" + (campaignId ? "campaign/" + campaignId : "system/" + systemId)));
+      msg(contractId ? "Consultando os registros persistidos deste contrato e sistema para montar o rascunho..." : "Consultando o acervo geral do sistema para montar o rascunho...");
+      const snapshot = await api(path("reports/" + (contractId ? "contracts/" + contractId + "/" : "") + (campaignId ? "campaign/" + campaignId : "system/" + systemId)));
       if (!current()) return;
-      if (snapshot.company?.id !== ownerId || snapshot.system?.id !== systemId || campaignId && snapshot.campaign?.id !== campaignId || snapshot.draft !== true || snapshot.canIssue !== false)
+      if (snapshot.company?.id !== ownerId || snapshot.system?.id !== systemId || campaignId && snapshot.campaign?.id !== campaignId || contractId && snapshot.contract?.id !== contractId || snapshot.draft !== true || snapshot.canIssue !== false)
         throw Error("Não foi possível confirmar o escopo do rascunho retornado pela API.");
       const images = new Map(), originals = new Map(), pending = [];
       for (const photo of snapshot.photos || []) {
@@ -2269,7 +2271,7 @@
       if (!current()) return;
       if (!result?.doc || result.metadata?.draft !== true || result.metadata?.canIssue !== false) throw Error("O gerador não confirmou a identificação de rascunho.");
       result.doc.save(result.filename || "relatorio-integridade-" + systemId + "-rascunho.pdf");
-      msg("Rascunho do sistema gerado com os dados persistidos e as fotos disponíveis. Não é emissão nem aprovação técnica." + (pending.length || result.metadata.pending?.length ? " Existem pendências documentadas no PDF; confira fontes, itens e fotos ausentes." : ""));
+      msg((contractId ? "Rascunho do sistema no contrato selecionado gerado" : "Rascunho do acervo geral do sistema gerado") + " com os dados persistidos e as fotos disponíveis. Não é emissão nem aprovação técnica." + (pending.length || result.metadata.pending?.length ? " Existem pendências documentadas no PDF; confira fontes, itens e fotos ausentes." : ""));
     },
     onError: operationalError,
   });

@@ -74,6 +74,134 @@ begin
  return jsonb_build_object('id',c.id,'status','verified','items',c.items,'source',jsonb_build_object('sourceId',s.id,'fileHash',s.id,'fileName',s.name,'locator',c.source_locator),'verifiedAt',c.verified_at);
 end $$;
 
+-- One shared predicate keeps the queue and direct execution gate in agreement.
+-- It has no table access and does not grant access to any actor or activity.
+create function pi_gestao_private.ga_execution_scope_matches(p_inspection jsonb,p_contract jsonb,p_campaign jsonb)
+returns boolean language sql immutable set search_path='' as $$
+ select coalesce(
+  p_inspection->>'module'='integridade' and p_inspection->>'type' in ('visual','espessura')
+  and p_contract->>'id'=p_inspection->>'contractId'
+  and p_campaign->>'id'=p_inspection->>'campaignId'
+  and coalesce(p_contract->'modules','[]') ? (p_inspection->>'module')
+  and coalesce(p_contract->'moduleAssetIds'->(p_inspection->>'module'),p_contract->'assetIds','[]') ? (p_inspection->>'assetId')
+  and p_campaign->>'contractId'=p_contract->>'id'
+  and p_campaign->>'module'=p_inspection->>'module'
+  and coalesce(p_campaign->'assetIds','[]') ? (p_inspection->>'assetId'),false);
+$$;
+
+-- Contract-aware reports use canonical record IDs and derive every collection,
+-- version and source from the same filtered snapshot. The legacy no-contract
+-- route remains explicit about covering all contracts in the selected system.
+create function pi_gestao_private.ga_system_report_scoped(p_tenant uuid,p_owner uuid,p_system uuid,p_campaign uuid,p_contract uuid)
+returns jsonb language plpgsql stable set search_path='' as $$
+declare owner_record jsonb;system_record jsonb;campaign_record jsonb;contract_record jsonb;result jsonb;
+begin
+ perform pi_gestao_private.ga_require_access(p_tenant,false);
+ if p_contract is null then
+  result:=pi_gestao_private.ga_system_report(p_tenant,p_owner,p_system,p_campaign);
+  return result||jsonb_build_object('reportScope',jsonb_build_object('mode',case when p_campaign is null then 'system_all_contracts' else 'campaign' end,'ownerId',p_owner,'contractId',result->'contract'->>'id','systemId',result->'system'->>'id','campaignId',p_campaign));
+ end if;
+ owner_record:=pi_gestao_private.ga_owner(p_tenant,p_owner);
+ contract_record:=pi_gestao_private.ga_record(p_tenant,p_owner,p_contract,'contract');
+ if not coalesce(contract_record->'modules','[]') ? 'integridade' or contract_record->>'recordClass'='commercial_reference' then raise exception 'Contrato fora do módulo de integridade.' using errcode='42501';end if;
+ if p_campaign is not null then
+  campaign_record:=pi_gestao_private.ga_record(p_tenant,p_owner,p_campaign,'campaign');
+  if campaign_record->>'contractId' is distinct from p_contract::text or campaign_record->>'module' is distinct from 'integridade'
+  or (p_system is not null and campaign_record->>'systemId' is distinct from p_system::text)
+  then raise exception 'Campanha não corresponde ao contrato e sistema selecionados.' using errcode='42501';end if;
+  p_system:=(campaign_record->>'systemId')::uuid;
+ end if;
+ if p_system is null then raise exception 'Sistema explícito obrigatório.' using errcode='22023';end if;
+ system_record:=pi_gestao_private.ga_record(p_tenant,p_owner,p_system,'system');
+ with assets as materialized (
+  select r.* from pi_gestao_private.records r
+  where r.tenant_id=p_tenant and r.owner_id=p_owner and r.kind='asset' and r.body->>'systemId'=p_system::text
+  and coalesce(contract_record->'moduleAssetIds'->'integridade',contract_record->'assetIds','[]') ? r.id::text
+  and (p_campaign is null or coalesce(campaign_record->'assetIds','[]') ? r.id::text)
+ ), campaigns as materialized (
+  select r.* from pi_gestao_private.records r where r.tenant_id=p_tenant and r.owner_id=p_owner and r.kind='campaign'
+  and r.body->>'contractId'=p_contract::text and r.body->>'systemId'=p_system::text and r.body->>'module'='integridade'
+  and (p_campaign is null or r.id=p_campaign)
+  and exists(select 1 from assets a where coalesce(r.body->'assetIds','[]') ? a.id::text)
+ ), inspections as materialized (
+  select r.* from pi_gestao_private.records r join campaigns c on c.id::text=r.body->>'campaignId'
+  where r.tenant_id=p_tenant and r.owner_id=p_owner and r.kind='inspection' and r.body->>'contractId'=p_contract::text
+  and exists(select 1 from assets a where a.id::text=r.body->>'assetId')
+  and pi_gestao_private.ga_execution_scope_matches(r.body,contract_record,c.body||jsonb_build_object('id',c.id))
+ ), eligible_documents as materialized (
+  select r.* from pi_gestao_private.records r where r.tenant_id=p_tenant and r.owner_id=p_owner and r.kind='document'
+  and (nullif(r.body->>'contractId','') is null or r.body->>'contractId'=p_contract::text)
+  and (nullif(r.body->>'assetId','') is null or exists(select 1 from assets a where a.id::text=r.body->>'assetId'))
+  and (nullif(r.body->>'campaignId','') is null or exists(select 1 from campaigns c where c.id::text=r.body->>'campaignId'))
+  and (nullif(r.body->>'inspectionId','') is null or exists(select 1 from inspections i where i.id::text=r.body->>'inspectionId'))
+  and (nullif(r.body->>'module','') is null or r.body->>'module' in ('integridade','rtis'))
+  and coalesce(r.body->>'recordClass','') not in ('projectSnapshot','projectPreview','projectScope','projectPlan','projectEvent')
+ ), lvts as materialized (
+  select r.* from pi_gestao_private.records r join inspections i on i.id::text=r.body->>'inspectionId'
+  where r.tenant_id=p_tenant and r.owner_id=p_owner and r.kind='lvt' and r.body->>'contractId'=p_contract::text
+  and r.body->>'assetId'=i.body->>'assetId' and r.body->>'module'=i.body->>'module'
+  and r.body->>'campaignId'=i.body->>'campaignId' and r.body->>'systemId'=i.body->>'systemId'
+  and (nullif(r.body->>'documentId','') is null or exists(select 1 from eligible_documents d where d.id::text=r.body->>'documentId'
+   and (nullif(d.body->>'assetId','') is null or d.body->>'assetId'=i.body->>'assetId')
+   and (nullif(d.body->>'campaignId','') is null or d.body->>'campaignId'=i.body->>'campaignId')
+   and (nullif(d.body->>'inspectionId','') is null or d.body->>'inspectionId'=i.id::text)))
+ ), items as materialized (
+  select r.* from pi_gestao_private.records r join lvts l on l.id::text=r.body->>'lvtId'
+  where r.tenant_id=p_tenant and r.owner_id=p_owner and r.kind='lvt_item' and r.body->>'contractId'=p_contract::text
+  and r.body->>'assetId'=l.body->>'assetId' and r.body->>'inspectionId'=l.body->>'inspectionId'
+  and r.body->>'campaignId'=l.body->>'campaignId' and r.body->>'systemId'=l.body->>'systemId' and r.body->>'module'=l.body->>'module'
+ ), photos as materialized (
+  select r.* from pi_gestao_private.records r join items i on i.id::text=r.body->>'lvtItemId'
+  where r.tenant_id=p_tenant and r.owner_id=p_owner and r.kind='photo' and r.body->>'contractId'=p_contract::text
+  and r.body->>'assetId'=i.body->>'assetId' and r.body->>'lvtId'=i.body->>'lvtId'
+  and r.body->>'inspectionId'=i.body->>'inspectionId' and r.body->>'campaignId'=i.body->>'campaignId' and r.body->>'systemId'=i.body->>'systemId' and r.body->>'module'=i.body->>'module'
+ ), findings as materialized (
+  select r.* from pi_gestao_private.records r join items i on i.id::text=r.body->>'lvtItemId'
+  where r.tenant_id=p_tenant and r.owner_id=p_owner and r.kind='finding' and r.body->>'contractId'=p_contract::text
+  and r.body->>'assetId'=i.body->>'assetId' and r.body->>'lvtId'=i.body->>'lvtId'
+  and r.body->>'inspectionId'=i.body->>'inspectionId' and r.body->>'campaignId'=i.body->>'campaignId' and r.body->>'systemId'=i.body->>'systemId' and r.body->>'module'=i.body->>'module'
+ ), rtis as materialized (
+  select r.* from pi_gestao_private.records r where r.tenant_id=p_tenant and r.owner_id=p_owner and r.kind='rti'
+  and r.body->>'contractId'=p_contract::text and exists(select 1 from assets a where a.id::text=r.body->>'assetId')
+  and (nullif(r.body->>'systemId','') is null or r.body->>'systemId'=p_system::text)
+  and (nullif(r.body->>'campaignId','') is null or exists(select 1 from campaigns c where c.id::text=r.body->>'campaignId'))
+  and (nullif(r.body->>'inspectionId','') is null or exists(select 1 from inspections i where i.id::text=r.body->>'inspectionId' and i.body->>'assetId'=r.body->>'assetId' and i.body->>'campaignId'=r.body->>'campaignId'))
+  and (nullif(r.body->>'lvtItemId','') is null or exists(select 1 from items i where i.id::text=r.body->>'lvtItemId' and i.body->>'assetId'=r.body->>'assetId' and i.body->>'campaignId'=r.body->>'campaignId'))
+  and (nullif(r.body->>'findingId','') is null or exists(select 1 from findings f where f.id::text=r.body->>'findingId' and f.body->>'assetId'=r.body->>'assetId' and f.body->>'campaignId'=r.body->>'campaignId' and (nullif(r.body->>'lvtItemId','') is null or f.body->>'lvtItemId'=r.body->>'lvtItemId')))
+  and (nullif(r.body->>'documentId','') is null or exists(select 1 from eligible_documents d where d.id::text=r.body->>'documentId'
+   and (nullif(d.body->>'assetId','') is null or d.body->>'assetId'=r.body->>'assetId')
+   and (nullif(d.body->>'campaignId','') is null or d.body->>'campaignId'=r.body->>'campaignId')
+   and (nullif(d.body->>'inspectionId','') is null or d.body->>'inspectionId'=r.body->>'inspectionId')))
+ ), documents as materialized (
+  select d.* from eligible_documents d where (
+   d.body->>'contractId'=p_contract::text and exists(select 1 from assets a where a.id::text=d.body->>'assetId')
+   or exists(select 1 from lvts l where l.body->>'documentId'=d.id::text)
+   or exists(select 1 from rtis r where r.body->>'documentId'=d.id::text)
+  )
+ ), selected as materialized (
+  select r.* from pi_gestao_private.records r where r.tenant_id=p_tenant and r.owner_id=p_owner and r.kind='contract' and r.id=p_contract
+  union all select * from assets union all select * from campaigns union all select * from inspections
+  union all select * from lvts union all select * from items union all select * from photos
+  union all select * from findings union all select * from rtis union all select * from documents
+ )
+ select jsonb_build_object('snapshotVersion',1,'version',1,'draft',true,'canIssue',false,'company',owner_record,'system',system_record,'campaign',campaign_record,'contract',contract_record,
+ 'reportScope',jsonb_build_object('mode',case when p_campaign is null then 'contract_system' else 'contract_campaign' end,'ownerId',p_owner,'contractId',p_contract,'systemId',p_system,'campaignId',p_campaign),
+ 'assets',coalesce(jsonb_agg(body||jsonb_build_object('id',id,'version',version) order by seq) filter(where kind='asset'),'[]'),
+ 'contracts',coalesce(jsonb_agg(body||jsonb_build_object('id',id,'version',version) order by seq) filter(where kind='contract'),'[]'),
+ 'campaigns',coalesce(jsonb_agg(body||jsonb_build_object('id',id,'version',version) order by seq) filter(where kind='campaign'),'[]'),
+ 'inspections',coalesce(jsonb_agg(body||jsonb_build_object('id',id,'version',version) order by seq) filter(where kind='inspection'),'[]'),
+ 'lvts',coalesce(jsonb_agg(body||jsonb_build_object('id',id,'version',version) order by seq) filter(where kind='lvt'),'[]'),
+ 'lvtItems',coalesce(jsonb_agg(body||jsonb_build_object('id',id,'version',version) order by seq) filter(where kind='lvt_item'),'[]'),
+ 'photos',coalesce(jsonb_agg(body||jsonb_build_object('id',id,'version',version) order by seq) filter(where kind='photo'),'[]'),
+ 'findings',coalesce(jsonb_agg(body||jsonb_build_object('id',id,'version',version) order by seq) filter(where kind='finding'),'[]'),
+ 'rtis',coalesce(jsonb_agg(body||jsonb_build_object('id',id,'version',version) order by seq) filter(where kind='rti'),'[]'),
+ 'documents',coalesce(jsonb_agg(body||jsonb_build_object('id',id,'version',version) order by seq) filter(where kind='document'),'[]'),
+ 'recordVersions',coalesce(jsonb_agg(jsonb_build_object('id',id,'kind',kind,'version',version) order by seq),'[]'),
+ 'sourceProvenance',coalesce((select jsonb_agg(jsonb_build_object('sourceId',s.id,'fileHash',s.id,'fileName',s.name,'format',coalesce(s.workbook->>'format','xlsx')) order by s.id) from pi_gestao_private.sources s where s.tenant_id=p_tenant and exists(select 1 from selected r where s.id in (r.body->'source'->>'sourceId',r.body->'conditionSource'->>'sourceId',r.body->'recommendationSource'->>'sourceId'))),'[]'),
+ 'unresolvedOwnerRTICount',(select count(*) from pi_gestao_private.records r where r.tenant_id=p_tenant and r.owner_id=p_owner and r.kind='rti' and r.body->>'assetId' is null and r.body->>'contractId'=p_contract::text and (p_campaign is null or r.body->>'campaignId'=p_campaign::text))) into result from selected;
+ return result||jsonb_build_object('scopeDigest',pi_gestao_private.ga_hash(result),'generatedAt',statement_timestamp());
+end $$;
+
 create function pi_gestao_private.ga_execution_detail(p_tenant uuid,p_owner uuid,p_inspection uuid)
 returns jsonb language plpgsql set search_path='' as $$
 declare actor uuid; cap jsonb; i jsonb; e jsonb; cat jsonb; con jsonb; campaign jsonb; p pi_team_private.professionals;
@@ -86,9 +214,7 @@ begin
  if i->>'module' is distinct from 'integridade' or i->>'type' not in ('visual','espessura') then raise exception 'Modalidade não coberta por esta ficha.' using errcode='22023';end if;
  con:=pi_gestao_private.ga_record(p_tenant,p_owner,(i->>'contractId')::uuid,'contract');
  campaign:=pi_gestao_private.ga_record(p_tenant,p_owner,(i->>'campaignId')::uuid,'campaign');
- if not coalesce(con->'modules','[]') ? (i->>'module') or not coalesce(con->'moduleAssetIds'->(i->>'module'),con->'assetIds','[]') ? (i->>'assetId')
- or campaign->>'contractId' is distinct from con->>'id' or campaign->>'module' is distinct from i->>'module'
- or not coalesce(campaign->'assetIds','[]') ? (i->>'assetId')
+ if not pi_gestao_private.ga_execution_scope_matches(i,con,campaign)
  then raise exception 'Atividade fora do escopo atual do contrato/campanha.' using errcode='42501';end if;
  select * into p from pi_team_private.professionals where tenant_id=p_tenant and user_id=actor and registration_state='active' and access_revoked_at is null;
  select * into a from pi_team_private.professionals where tenant_id=p_tenant and id=nullif(i->>'assigneeProfessionalId','')::uuid;
@@ -123,6 +249,10 @@ declare actor uuid; own uuid; inspection_id uuid; request_id uuid; cap jsonb; d 
  scope jsonb; source jsonb; id uuid; item_id uuid; kind text; observed text; status text; n integer; completed integer:=0; review_needed boolean:=false;
  seen text[]:='{}'; reading jsonb; readings jsonb; instrument text;
 begin
+ if p_action='reports.system' then
+  if p_payload ? 'contractId' and nullif(p_payload->>'contractId','') is null then raise exception 'Contrato explícito inválido.' using errcode='22023';end if;
+  return pi_gestao_private.ga_system_report_scoped(p_tenant,(p_payload->>'ownerId')::uuid,nullif(p_payload->>'systemId','')::uuid,nullif(p_payload->>'campaignId','')::uuid,nullif(p_payload->>'contractId','')::uuid);
+ end if;
  if p_action is null or p_action not like 'execution.%' then
   -- Historical import remains a separate path. It cannot mutate or duplicate a
   -- managed execution, including calls through the old API operation names.
@@ -156,11 +286,12 @@ begin
   select coalesce(jsonb_agg(r.body||jsonb_build_object('id',r.id,'version',r.version,'assigneeName',p.name,'assigneeAccessLinked',p.user_id is not null,'executionId',x.execution_id,'executionStatus',er.body->>'status','technicalReviewRequired',coalesce((er.body->>'technicalReviewRequired')::boolean,false),'progress',coalesce(er.body->'progress',jsonb_build_object('answered',0,'total',0))) order by r.seq),'[]') into result
   from pi_gestao_private.records r
   join pi_gestao_private.records con on con.tenant_id=r.tenant_id and con.owner_id=r.owner_id and con.id=nullif(r.body->>'contractId','')::uuid and con.kind='contract'
+  join pi_gestao_private.records campaign on campaign.tenant_id=r.tenant_id and campaign.owner_id=r.owner_id and campaign.id=nullif(r.body->>'campaignId','')::uuid and campaign.kind='campaign'
   left join pi_team_private.professionals p on p.tenant_id=r.tenant_id and p.id=nullif(r.body->>'assigneeProfessionalId','')::uuid
   left join pi_gestao_private.inspection_executions x on x.tenant_id=r.tenant_id and x.owner_id=r.owner_id and x.inspection_id=r.id
   left join pi_gestao_private.records er on er.tenant_id=x.tenant_id and er.owner_id=x.owner_id and er.id=x.execution_id
-  where r.tenant_id=p_tenant and r.owner_id=own and r.kind='inspection' and r.body->>'module'='integridade' and r.body->>'type' in ('visual','espessura')
-  and coalesce(con.body->'modules','[]') ? 'integridade' and coalesce(con.body->'moduleAssetIds'->'integridade',con.body->'assetIds','[]') ? (r.body->>'assetId')
+  where r.tenant_id=p_tenant and r.owner_id=own and r.kind='inspection'
+  and pi_gestao_private.ga_execution_scope_matches(r.body,con.body||jsonb_build_object('id',con.id),campaign.body||jsonb_build_object('id',campaign.id))
   and (manager or r.body->>'assigneeProfessionalId'=person.id::text);
   return jsonb_build_object('actorUserId',actor,'professionalId',person.id,'canAssign',manager and cap->>'write'='true','writeAllowed',cap->>'write'='true','inspections',result,
    'professionals',case when manager then coalesce((select jsonb_agg(jsonb_build_object('id',p.id,'name',p.name,'registrationState',p.registration_state,'accessLinked',p.user_id is not null) order by p.name) from pi_team_private.professionals p where p.tenant_id=p_tenant and p.registration_state='active' and p.access_revoked_at is null),'[]') else '[]'::jsonb end);
@@ -307,7 +438,7 @@ begin
  return result;
 end $$;
 
-revoke all on function pi_gestao_private.ga_execution_catalog(uuid,uuid,uuid),pi_gestao_private.ga_execution_detail(uuid,uuid,uuid),pi_gestao_private.ga_api_execution(uuid,text,jsonb) from public,anon,authenticated,service_role;
+revoke all on function pi_gestao_private.ga_execution_catalog(uuid,uuid,uuid),pi_gestao_private.ga_execution_scope_matches(jsonb,jsonb,jsonb),pi_gestao_private.ga_system_report_scoped(uuid,uuid,uuid,uuid,uuid),pi_gestao_private.ga_execution_detail(uuid,uuid,uuid),pi_gestao_private.ga_api_execution(uuid,text,jsonb) from public,anon,authenticated,service_role;
 revoke execute on function pi_gestao_private.ga_api(uuid,text,jsonb),pi_gestao_private.ga_api_operational(uuid,text,jsonb),pi_gestao_private.ga_api_prepared(uuid,text,jsonb),pi_gestao_private.ga_api_projects(uuid,text,jsonb) from authenticated;
 grant execute on function pi_gestao_private.ga_api_execution(uuid,text,jsonb) to authenticated;
 create or replace function public.pi_gestao_api(p_tenant uuid,p_action text,p_payload jsonb default '{}'::jsonb)
