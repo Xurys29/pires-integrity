@@ -4,6 +4,10 @@ Esta branch reúne a versão **Equipe v1**, incluindo Gestão de Ativos, Corpo t
 
 A verificação de 28/10/2026 comparou os 60 arquivos servidos publicamente e todos coincidiram por SHA-256. Os 60 arquivos de código/configuração não credencial desta cópia coincidem com o pacote, incluindo `_headers`. A única substituição no conjunto de 61 arquivos é `app/runtime-config.js`: a chave de publicação foi retirada. Veja [RELEASE.md](RELEASE.md) e [release/](release/).
 
+Esta branch de inspeção contém alterações ainda não publicadas sobre o commit `6093ff37b10dd2246501ed790c8b0ab498508457`. O manifesto e o recibo em `release/` continuam como evidência daquela base, sem serem reescritos para as alterações. O recorte, os testes e as dependências de catálogo/autorização estão em [INSPECAO-REVISAO.txt](INSPECAO-REVISAO.txt). O SQL de inspeção é um candidato de revisão, sem aplicação em produção.
+
+As correções de 30/10 para isolamento dos relatórios por contrato, distinção entre progresso administrativo e emissão técnica e coerência da fila com o escopo vigente estão em [INSPECAO-CORRECOES-20261030.md](INSPECAO-CORRECOES-20261030.md). Continuam somente na versão em revisão.
+
 ## Executar e testar na nuvem
 
 Node.js 24 ou superior. Para os importadores Python e seu teste, Python 3.12 com as versões de `requirements-cloud.txt`.
@@ -13,14 +17,14 @@ npm ci --ignore-scripts
 python -m pip install -r requirements-cloud.txt
 npm run prepare
 npm run check
-npm run verify:release
+# verify:release confere a base publicada; nesta branch são esperadas diferenças.
 npm test
 HOST=0.0.0.0 PORT=3000 npm start
 ```
 
 O servidor começa sem credenciais no modo de demonstração. Ele serve os arquivos atuais da aplicação; não simula autenticação da equipe. As telas protegidas precisam da configuração conectada e de permissões reais.
 
-Para conectar, forneça **privadamente nas variáveis do ambiente** os campos vazios de `.env.example`, use `PIRES_MODE=connected` e execute o mesmo servidor. Ele gera a resposta de `runtime-config.js` em memória. Não grava nem imprime chaves. O frontend valida URL Supabase e URL da aplicação HTTPS; uma prévia conectada precisa de domínio HTTPS autorizado. Configure também os URLs de redirecionamento do Auth no ambiente de desenvolvimento. As Edge Functions preservam as restrições de origem/projeto publicadas: revisá-las para um novo ambiente é trabalho posterior, não realizado neste envio.
+Para conectar, forneça **privadamente nas variáveis do ambiente** os campos vazios de `.env.example`, use `PIRES_MODE=connected` e `PIRES_GESTAO_BACKEND=supabase` e execute o mesmo servidor. A segunda variável seleciona explicitamente o adaptador operacional da Gestão; não concede acesso a pessoas. O servidor gera a resposta de `runtime-config.js` em memória. Não grava nem imprime chaves. O frontend valida URL Supabase e URL da aplicação HTTPS; uma prévia conectada precisa de domínio HTTPS autorizado. Configure também os URLs de redirecionamento do Auth no ambiente de desenvolvimento. As Edge Functions preservam as restrições de origem/projeto publicadas: revisá-las para um novo ambiente é trabalho posterior, não realizado neste envio.
 
 Para testar somente equipe: `npm run test:team`. Os testes normais utilizam fixtures sintéticas e bancos locais PGlite; não utilizam as 22 contas de produção. Três testes de importações históricas dependem de documentos privados de cliente e ficam explicitamente ignorados sem `PIRES_PRIVATE_FIXTURES=1` e sem os originais autorizados.
 

@@ -1,0 +1,118 @@
+Recorte de inspeção — revisão local de 28/10/2026
+
+Base comprovada
+Branch de origem: codex/equipe-acessos-20261028
+Commit: 6093ff37b10dd2246501ed790c8b0ab498508457
+Pacote de desenvolvimento: 0.8.0-equipe.20261028 (Equipe v1).
+Branch de trabalho: codex/inspecao-lvt-20261028.
+
+Antes das alterações, 60 arquivos não credenciais do commit coincidiram com
+release/published-manifest.json. Os 59 arquivos não credenciais do recibo
+release/public-verification-prior.json também coincidiram com o commit.
+O recibo anterior informa conferência pública 60/60 em 28/10, 19:43:24 UTC.
+Essa consulta pública não foi repetida: o domínio não está permitido na política
+de rede desta instância. runtime-config.js está deliberadamente sem a configuração
+publicada. ID final Cloudflare ausente; bundle remoto integral da gestao-api não
+foi comparado. Os manifestos originais permanecem intactos.
+
+Implementação preparada, ainda não publicada
+- Cards por atividade com identificação, sistema, tipo, data, responsável,
+  andamento e Iniciar/Continuar. Paginação de 12 cards; book secundário.
+- Atribuição ao cadastro compartilhado existente e filtro Minhas inspeções.
+- Ficha direta de execução visual ou de espessura. O tipo da atividade é
+  preservado. Nenhum ponto/posição angular ou procedimento foi preenchido.
+- Rascunho estável por inspeção, controle de versão e envio para revisão.
+  Envio bloqueia edição; não aprova, assina, emite ou entrega relatório.
+- Seleções de condições e recomendações de catálogo com proveniência, sem
+  texto livre de observações/recomendações nem resposta boa por padrão.
+  Condição não contemplada gera pendência visível à gestão técnica.
+- Fotos vinculadas ao item. Recomendação mantém a mesma RTI do item/TAG/
+  contrato, inclusive ao editar/recarregar. Retirada de recomendação preserva
+  a RTI e requer conferência; envio não encerra RTI.
+- Identificação administrativa do projeto recolhida; inspeções têm atalho
+  próximo ao início do painel. Planejamento e acervo histórico ficam separados.
+- Adaptador HTTP, Edge e SQL validam escopo/identidade, atribuição e permissão
+  vigente. Rotas históricas não podem contornar o fluxo dos registros geridos.
+
+Limites operacionais e dados existentes
+Consulta agregada somente de leitura ao backend confirmou 22 profissionais
+ativos da organização Pires: 20 inspetores e 2 engineer_reviewer. Todos estão
+marcados como exercício, vinculados a Auth e com registro de login_validated_at.
+Isso não confirma habilitação técnica, assinatura ou acesso ao novo fluxo.
+As 22 memberships estão ativas (inspector/assistant), mas nenhum dos 22 tem
+liberação no piloto de Gestão. A política atual só permite gravação admin/master.
+O código preserva essa restrição: atribuir não concede acesso nem permissão.
+O exercício positivo dos testes usa ator sintético autorizado e atribuído;
+o inspetor com consulta é testado para negativa de gravação.
+Nenhuma pessoa, conta, licença, credencial ou liberação real foi criada/alterada.
+
+Catálogo real pendente
+As duas fontes Library foram resolvidas, mas a transferência oficial retornou
+download failed. Não há originais materializados nem hashes locais conferidos.
+A leitura textual do inventário encontrou 39 recomendações históricas, todas
+review_required:true; o texto disponível da planilha não cobre o catálogo inteiro.
+Nenhuma frase real foi promovida automaticamente a catálogo de produto.
+inspection_catalogs começa vazia. A interface mostra a pendência e impede envio
+de LVT sem catálogo conferido completo. Fixtures sintéticas são exclusivas dos
+testes. Um rascunho sem catálogo preserva sua ausência; associação posterior
+de catálogo exige tratamento técnico explícito, sem substituição silenciosa.
+
+SQL para revisão, sem rollout
+supabase/inspection-execution.sql é candidato transacional de revisão, testado
+somente em bancos PGlite isolados. Não foi aplicado a qualquer backend remoto.
+A CLI Supabase desta instância falha na inicialização ao tentar criar
+/home/agent/.supabase (EROFS). Portanto não se inventou nome de migração.
+Antes de eventual rollout: gerar migração pela CLI suportada, revisar mudanças
+de ACL e executar advisors em ambiente de desenvolvimento apropriado.
+
+Delta de ACL proposto no SQL, não aplicado a permissões persistentes existentes:
+revogar EXECUTE authenticated nos dispatchers privados ga_api,
+ga_api_operational, ga_api_prepared e ga_api_projects para impedir bypass.
+O ponto público pi_gestao_api continua disponível através do dispatcher validado
+ga_api_execution. Nenhum grant de profissional/membership/piloto é acrescentado.
+Esse delta precisa ser revisado antes de qualquer aplicação futura.
+
+Validação
+Base intacta: npm run verify:release = 60/60; npm test = 158 passaram,
+0 falharam, 3 ignorados por originais privados ausentes.
+Rodar na branch: npm run check; npm test;
+node tests/gestao-inspection-browser.cjs.
+Os resultados finais e capturas estão em output/inspection-review/.
+Resultado final: npm run check aprovou 106 arquivos JavaScript; npm test teve
+171 testes, 168 aprovados, zero falhas e 3 ignorados pelos originais privados.
+O navegador teve 10 verificações aprovadas, em ambas as larguras, com capturas.
+O teste SQL cobre restauração/persistência local, idempotência, RTI atômica,
+controle concorrente de versão, acesso por atribuição e negativas RPC.
+O teste de bootstrap aplica o candidato também ao snapshot de 40 tabelas e
+confirma ausência de usuários/profissionais/catálogos criados automaticamente.
+Os testes HTTP e de navegador usam respostas e dados sintéticos; não equivalem
+a uma sessão autenticada de produção. Navegação: 1440x1000 e 390x844.
+O harness antigo gestao-flow-browser.cjs não acompanha a entrada atual sem hash
+que redireciona para gestao-inicio; o novo teste usa as rotas atuais com hash.
+
+Próximas partes, sem alegar prontas
+- Materializar fontes, conferir bytes/hashes e revisar catálogo completo.
+- Revisar autorização operacional específica dos inspetores e liberar somente
+  após autorização futura; não presumir que cadastro/login basta.
+- Definir vínculo entre projectPlan.tasks e inspeções canônicas para tarefas
+  novas. Este recorte executa as atividades inspection existentes; uma tarefa
+  de planejamento isolada não cria execução automaticamente.
+- Isométrico com revisão/folha/pontos, fotos numeradas e croqui preservado.
+- Relatório visual individual por TAG, segundo relatório de espessura quando
+  previsto, consolidação por sistema, numeração/revisões e atos de assinatura.
+- Conferência, revisão/PLH, emissão e entrega ao cliente, com revisão de conteúdo.
+
+Não houve deploy, migração em produção, modificação persistente de permissões,
+emissão técnica ou envio a cliente. Main, branch de origem e checkout anterior
+foram preservados. O resultado é uma implementação local para revisão com
+dependências externas e limites de autorização explícitos.
+
+Atualização de revisão em 30/10/2026
+Os três defeitos encontrados na validação de 29/10 foram corrigidos no PR:
+escopo contratual do relatório, falsa contagem de emissão por evento de plano
+e fila incoerente com o escopo da campanha. Histórico e rascunhos preservados.
+Validação atual: npm test com 191 testes, 188 aprovados, zero falhas e 3 ignorados;
+check em 111 arquivos JS; 32 cenários de navegador aprovados com APIs simuladas.
+O detalhamento e os limites atuais estão em INSPECAO-CORRECOES-20261030.md.
+As pendências de acesso operacional, catálogo, relatórios individuais, PLH,
+assinatura e isométrico continuam abertas. Nenhuma alteração foi publicada.

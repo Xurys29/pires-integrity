@@ -21,6 +21,8 @@ const CREATE_ACTIONS = Object.freeze({
   findings: "findings.create", rtis: "rtis.open", documents: "documents.create",
   relationships: "relationships.create", "lvt-items": "lvt_items.create", photos: "photos.create",
   "field-lvts": "field_lvts.create", "field-items": "field_items.create", "rti-updates": "rtis.update",
+  "execution-assign": "execution.assign", "execution-start": "execution.start",
+  "execution-save": "execution.save", "execution-submit": "execution.submit",
   "inspection-updates": "inspections.update", "asset-register": "assets.register", "asset-operation": "assets.operation",
   "asset-links": "asset_links.create", measurements: "measurements.create", certificates: "certificates.create",
   classifications: "classifications.create", "nr13-assess": "nr13.assess", "perenco-tq-book": "perenco.tq_book", deadlines: "deadlines.create",
@@ -258,7 +260,7 @@ export function createGestaoHandler({ appOrigin, createUserClient, createService
           tenant,
           pilot: true,
           preparedSources: preparedSources.map(({id,name}) => ({id,name})),
-          capabilities: { workflowVersion: 2, xlsx: true, pdf: false, xls: false, operations: true, documentOriginals: true, photoOriginals: true, xlsxMaxBytes: MAX_FILE, documentMaxBytes: MAX_DOCUMENT, photoMaxBytes: MAX_FILE, write: grant?.write === true },
+          capabilities: { workflowVersion: 2, inspectionExecutionVersion: 1, xlsx: true, pdf: false, xls: false, operations: true, documentOriginals: true, photoOriginals: true, xlsxMaxBytes: MAX_FILE, documentMaxBytes: MAX_DOCUMENT, photoMaxBytes: MAX_FILE, write: grant?.write === true },
         });
       }
       if (route === "tenants" && request.method === "GET") {
@@ -341,6 +343,10 @@ export function createGestaoHandler({ appOrigin, createUserClient, createService
       if (parts[0] === "companies" && parts[1]) {
         const ownerId = parts[1].toLowerCase();
         if (!UUID.test(ownerId)) fail(400, "invalid_owner", "Empresa dona dos ativos inválida.");
+        if (!write && parts.length === 3 && parts[2] === "execution")
+          return json(200, await call("execution.list", { ownerId }));
+        if (!write && parts.length === 4 && parts[2] === "execution" && UUID.test(parts[3]))
+          return json(200, await call("execution.get", { ownerId, inspectionId: parts[3].toLowerCase() }));
         if (!write && parts.length === 4 && parts[2] === "sources") {
           const sourceId = parts[3];
           if (!SHA.test(sourceId)) fail(400, "invalid_source", "Documento de origem inválido.");
@@ -366,6 +372,12 @@ export function createGestaoHandler({ appOrigin, createUserClient, createService
           return json(200, await call("history.get", { ownerId, assetId: parts[3].toLowerCase() }));
         if (!write && parts.length === 4 && parts[2] === "book" && UUID.test(parts[3]))
           return json(200, await call("book.get", { ownerId, assetId: parts[3].toLowerCase() }));
+        if (parts[2] === "reports" && parts[3] === "contracts") {
+          if (write) fail(405, "method_not_allowed", "Relatórios usam somente leitura do escopo indicado no caminho.");
+          if (parts.length !== 7 || !UUID.test(parts[4]) || !["system", "campaign"].includes(parts[5]) || !UUID.test(parts[6]))
+            fail(400, "invalid_report_scope", "Contrato e sistema ou campanha devem estar identificados no caminho.");
+          return json(200, await call("reports.system", { ownerId, contractId: parts[4].toLowerCase(), [parts[5] === "system" ? "systemId" : "campaignId"]: parts[6].toLowerCase() }));
+        }
         if (!write && parts.length === 5 && parts[2] === "reports" && ["system", "campaign"].includes(parts[3]) && UUID.test(parts[4]))
           return json(200, await call("reports.system", { ownerId, [parts[3] === "system" ? "systemId" : "campaignId"]: parts[4].toLowerCase() }));
         if (write && parts.length === 3 && Object.hasOwn(CREATE_ACTIONS, parts[2]))

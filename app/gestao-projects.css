@@ -4,3 +4,6 @@
 @media print{.project-operational,.project-toolbar,.client-toolbar,.app-header,.workspace-links,#flowNavigation{display:none!important}.project-section{break-inside:avoid}.project-metric{break-inside:avoid}}
 
 .project-main-grid>.project-section:first-child{max-height:620px;overflow:auto}.project-heading h1{overflow-wrap:anywhere}.project-system progress{min-width:0}
+
+.project-identification>summary{cursor:pointer;font-weight:700;color:var(--navy,#17394b)}
+.project-execution{display:flex;flex-wrap:wrap;gap:12px;margin:12px 0 18px}

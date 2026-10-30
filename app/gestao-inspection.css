@@ -1,0 +1,48 @@
+.inspection-workspace { max-width: 1180px; margin: 0 auto; }
+/* A permission notice needs its own flow space above the client selector. */
+#tenantAccess:has(#connectedWriteNotice:not([hidden])) { position: static; align-items: center; gap: 1rem; margin: 0 0 1rem; padding: .8rem; border: 1px solid #dce5e7; border-radius: 10px; background: #fff; }
+#tenantAccess:has(#connectedWriteNotice:not([hidden])) label { font-size: 11px; gap: .65rem; }
+#tenantAccess:has(#connectedWriteNotice:not([hidden])) #connectedWriteNotice { max-width: none; flex: 1; line-height: 1.55; }
+.inspection-workspace h1 { margin: .35rem 0 1rem; }
+.inspection-toolbar { display: flex; gap: .65rem; flex-wrap: wrap; margin: 0 0 1.35rem; }
+.inspection-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 1rem; margin-top: 1rem; }
+.inspection-card, .inspection-section { background: #fff; border: 1px solid #dce5e7; border-radius: 18px; padding: 1.2rem; margin-bottom: 1rem; box-shadow: 0 4px 18px #17394b05; min-width: 0; }
+.inspection-card h2 { font-size: 1.25rem; overflow-wrap: anywhere; margin: .6rem 0; }
+.inspection-section > h2 { font-size: 1.15rem; margin: 0 0 1rem; }
+.inspection-eyebrow { font-size: .75rem; letter-spacing: .06em; font-weight: 700; text-transform: uppercase; color: #005a7b; }
+.inspection-system { color: #536a75; margin: 0 0 1rem; }
+.inspection-meta { display: grid; grid-template-columns: minmax(100px, .8fr) minmax(0, 1.2fr); gap: .45rem .8rem; margin: 1rem 0; }
+.inspection-meta dt { color: #58707c; font-size: .88rem; }
+.inspection-meta dd { margin: 0; overflow-wrap: anywhere; font-weight: 500; }
+.inspection-card progress { width: 100%; height: .55rem; accent-color: #005a7b; }
+.inspection-progress-label, .inspection-note, .inspection-source { color: #58707c; line-height: 1.6; font-size: .9rem; }
+.inspection-source { font-size: .8rem; overflow-wrap: anywhere; }
+.inspection-primary { background: #005a7b; color: #fff; border-color: #005a7b; font-weight: 600; }
+.inspection-card > .inspection-primary { width: 100%; margin: .4rem 0 .8rem; }
+.inspection-assignment { border-top: 1px solid #e8edef; padding-top: .85rem; margin-top: .6rem; }
+.inspection-assignment label, .inspection-execution-form label, .inspection-workspace > label { display: flex; flex-direction: column; gap: .4rem; margin-bottom: .8rem; font-size: .9rem; color: #264b5f; }
+.inspection-workspace input, .inspection-workspace select { box-sizing: border-box; width: 100%; min-height: 44px; border: 1px solid #c9d7dd; border-radius: 9px; padding: .65rem; background: #fff; color: #17394b; font: inherit; }
+.inspection-workspace select { white-space: normal; }
+.inspection-workspace button { min-height: 44px; padding: .65rem .9rem; border-radius: 9px; margin-right: .4rem; margin-bottom: .5rem; }
+.inspection-book { font-size: .9rem; }
+.inspection-feedback { min-height: 1.2em; line-height: 1.55; color: #005a7b; }
+.inspection-feedback.error { color: #9a2c2c; }
+.inspection-catalog-pending, .inspection-access-note, .inspection-technical-pending:not(:empty) { background: #fff7e5; border: 1px solid #eddbb4; border-radius: 10px; padding: .85rem; color: #66521e; line-height: 1.6; }
+.inspection-item { border: 1px solid #dce5e7; border-left: 3px solid #005a7b; border-radius: 12px; padding: 1rem; margin-top: 1rem; }
+.inspection-item h2 { font-size: 1.05rem; line-height: 1.5; }
+.inspection-item-photo { display: block; max-width: 100%; max-height: 340px; object-fit: contain; margin: .75rem 0; border-radius: 9px; }
+.inspection-item-photo[hidden] { display: none; }
+.inspection-reading { display: grid; grid-template-columns: 1fr 1fr .7fr auto; align-items: end; gap: .7rem; border-bottom: 1px solid #e5edef; padding: .7rem 0; }
+.inspection-workspace button:disabled, .inspection-workspace input:disabled, .inspection-workspace select:disabled { opacity: .65; cursor: not-allowed; }
+@media (max-width: 640px) {
+ #tenantAccess:has(#connectedWriteNotice:not([hidden])) { align-items: stretch; flex-direction: column; gap: .65rem; }
+ #tenantAccess:has(#connectedWriteNotice:not([hidden])) label { align-items: stretch; flex-direction: column; gap: .35rem; }
+ #tenantAccess:has(#connectedWriteNotice:not([hidden])) select { width: 100%; max-width: 100%; min-height: 44px; }
+ .inspection-card, .inspection-section { padding: 1rem; border-radius: 13px; }
+ .inspection-meta { grid-template-columns: 1fr; gap: .2rem; }
+ .inspection-meta dd { margin-bottom: .55rem; }
+ .inspection-toolbar { gap: .4rem; }
+ .inspection-toolbar button, .inspection-assignment button, .inspection-execution-form button { width: 100%; margin-right: 0; }
+ .inspection-reading { grid-template-columns: 1fr; gap: .2rem; }
+ .inspection-workspace select { max-width: 100%; }
+}
