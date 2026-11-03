@@ -4,6 +4,7 @@
 // Nothing here connects to a Supabase project or emits a technical document.
 const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),{randomUUID,createHash}=require('node:crypto');
 const {setup}=require('./fixtures/gestao-postgres-fixture.cjs');
+const {catalogueMetadata,selectCatalogue}=require('./fixtures/gestao-explicit-catalogue.cjs');
 const ProjectModel=require('../app/gestao-project-model.js');
 const sql=fs.readFileSync(path.join(__dirname,'../supabase/inspection-execution.sql'),'utf8');
 async function fixture(t){
@@ -32,7 +33,7 @@ async function fixture(t){
  };
  f.scope=await f.newContract(f.asset,'CONTRATO FIXTURE C1');
  f.inspect=(type='visual',scope=f.scope)=>f.call('inspections.create',{requestId:randomUUID(),assetId:scope.asset.id,contractId:scope.contract.id,campaignId:scope.campaign.id,module:'integridade',type,status:'planejada',source:'Planejamento somente fixture'});
- f.assign=(inspection,professionalId=f.people.manager)=>f.call('execution.assign',{inspectionId:inspection.id,professionalId,expectedVersion:inspection.version,requestId:randomUUID()});
+ f.assign=async(inspection,professionalId=f.people.manager)=>{const d=await f.call('execution.assign',{inspectionId:inspection.id,professionalId,expectedVersion:inspection.version,requestId:randomUUID()});return inspection.type==='visual'&&f.catalogId?selectCatalogue(f,{ownerId:f.owner,inspectionId:inspection.id,catalogId:f.catalogId}):d;};
  f.today=(await f.db.query('select current_date::text d')).rows[0].d;
  return f;
 }
@@ -44,6 +45,7 @@ async function catalogue(f){
  const s=await original(f),source={sourceId:s.id,fileHash:s.id,fileName:s.name,locator:{page:1}},id=randomUUID();
  const items=[1,2].map(n=>({id:'i'+n,itemKey:String(n),component:'COMPONENTE EXCLUSIVO FIXTURE '+n,conditions:[{id:'c'+n,text:'CONDIÇÃO EXCLUSIVA FIXTURE '+n,source},{id:'c'+n+'b',text:'CONDIÇÃO ALTERNATIVA FIXTURE '+n,source}],recommendations:[{id:'r'+n,text:'RECOMENDAÇÃO EXCLUSIVA FIXTURE '+n,source},{id:'r'+n+'b',text:'RECOMENDAÇÃO ALTERNATIVA FIXTURE '+n,source}]}));
  await f.db.query('insert into pi_gestao_private.inspection_catalogs(tenant_id,owner_id,id,source_id,source_locator,items,verified_by,verified_at) values($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7,now())',[f.ids.tenantA,f.owner,id,s.id,JSON.stringify({page:1}),JSON.stringify(items),f.ids.adminA]);
+ await catalogueMetadata(f,{ownerId:f.owner,catalogId:id,contractIds:[f.scope.contract.id],assetIds:[f.asset.id]});f.catalogId=id;
  return {id,items};
 }
 const saveInput=(f,d,answers,extra={})=>({inspectionId:d.inspection.id,requestId:randomUUID(),expectedVersion:d.execution.version,observedOn:f.today,answers,...extra});
@@ -57,12 +59,13 @@ async function reportTree(f,scope,label){
 }
 
 test('validation: current manager/inspector/assistant-PLH/planner rights, pilot, licence and tenant boundaries',async t=>{
- const f=await fixture(t),ids=f.ids,inspections={};
+ const f=await fixture(t),ids=f.ids,inspections={};await catalogue(f);
  for(const [label,actor] of [['inspector',ids.inspector],['plh_fixture',ids.assistant],['planner',ids.planner]]){
   const i=await f.inspect();inspections[label]=i;await f.assign(i,f.people[label]);
   const list=await f.call('execution.list',{},actor);assert.equal(list.inspections.length,1,label);assert.equal(list.inspections[0].id,i.id);assert.equal(list.professionals.length,0);
-  const own=await f.call('execution.get',{inspectionId:i.id},actor);assert.equal(own.canExecute,false);assert.equal(own.writeAllowed,false);assert.equal(own.canAssign,false);
-  await assert.rejects(f.call('execution.start',{inspectionId:i.id,requestId:randomUUID()},actor),{code:'42501'});
+  const own=await f.call('execution.get',{inspectionId:i.id},actor);assert.equal(own.canExecute,label==='inspector');assert.equal(own.writeAllowed,label==='inspector');assert.equal(own.canAssign,false);
+  if(label==='inspector')assert.equal((await f.call('execution.start',{inspectionId:i.id,requestId:randomUUID()},actor)).execution.createdBy,actor);
+  else await assert.rejects(f.call('execution.start',{inspectionId:i.id,requestId:randomUUID()},actor),{code:'42501'});
   await assert.rejects(f.call('execution.assign',{inspectionId:i.id,professionalId:f.people.manager,expectedVersion:own.inspection.version,requestId:randomUUID()},actor),{code:'42501'});
  }
  assert.equal((await f.call('execution.list')).inspections.length,3);assert.equal((await f.call('execution.list')).canAssign,true);
@@ -79,7 +82,7 @@ test('validation: current manager/inspector/assistant-PLH/planner rights, pilot,
  await assert.rejects(f.originalCall(ids.tenantB,'execution.get',{ownerId:f.owner,inspectionId:inspections.inspector.id},ids.adminB),{code:'22023'});
  const otherOwner=await f.call('owners.create',{name:'Outro cliente exclusivamente fixture',source:'Fixture'});
  await assert.rejects(f.call('execution.get',{ownerId:otherOwner.id,inspectionId:inspections.inspector.id}),{code:'22023'});
- t.diagnostic('SQL/PGlite only: inspector/assistant/planner are read-only; PLH label is a synthetic functional_role, not a technical qualification or signature.');
+ t.diagnostic('SQL/PGlite only: inspector writes only the active assignment; assistant/planner remain read-only. PLH label is synthetic, not technical qualification or signature.');
 });
 
 test('validation: queued double start, response-loss save replay, double submit and restored identity',async t=>{
@@ -126,9 +129,9 @@ test('validation: RTI identity survives duplicate/new-request saves, editing, wi
  const report=await f.call('reports.system',{systemId:f.system.id});assert.equal(report.canIssue,false);assert.equal((await f.call('state.get')).rti[0].status,'aberta');
 });
 
-test('validation: missing catalogue and incomplete answers remain pending; supplied type cannot change thickness',async t=>{
- const f=await fixture(t),v=await f.inspect();await f.assign(v);let d=await f.call('execution.start',{inspectionId:v.id,requestId:randomUUID()});assert.equal(d.catalog.status,'unavailable');assert.equal(d.execution.answers.length,0);assert.equal(d.execution.items.length,0);
- d=await f.call('execution.save',saveInput(f,d,[]));await assert.rejects(f.call('execution.submit',{inspectionId:v.id,expectedVersion:d.execution.version,requestId:randomUUID()}),{code:'22023'});
+test('validation: missing explicit catalogue blocks visual start; supplied type cannot change thickness',async t=>{
+ const f=await fixture(t),v=await f.inspect();await f.assign(v);let d=await f.call('execution.get',{inspectionId:v.id});assert.equal(d.catalog.id,null);assert.equal(d.execution,null);
+ await assert.rejects(f.call('execution.start',{inspectionId:v.id,requestId:randomUUID()}),{code:'22023'});
  const m=await f.inspect('espessura');await f.assign(m);d=await f.call('execution.start',{inspectionId:m.id,type:'visual',requestId:randomUUID()});assert.equal(d.inspection.type,'espessura');assert.equal(d.execution.type,'espessura');assert.equal(d.execution.recordClass,'measurement_draft');assert.equal(d.execution.items.length,0);
  await assert.rejects(f.call('execution.save',saveInput(f,d,[],{type:'visual'})),{code:'22023'});
  await assert.rejects(f.call('execution.submit',{inspectionId:m.id,expectedVersion:d.execution.version,requestId:randomUUID()}),{code:'22023'});

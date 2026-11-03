@@ -6,7 +6,9 @@
   "use strict";
   const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   const READ = /^(status|tenants|companies|companies\/[a-f0-9-]{36}\/(state|history\/[a-f0-9-]{36}|book\/[a-f0-9-]{36}|reports\/(?:contracts\/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\/)?(system|campaign)\/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}|sources\/[a-z0-9-]+|execution(?:\/[a-f0-9-]{36})?))$/i;
-  const WRITE = /^(companies|sources(?:\/reference)?|import\/(preview|commit)|companies\/[a-f0-9-]{36}\/(hierarchy|assets|contracts|campaigns|inspections|lvts|lvt-items|photos|findings|rtis|documents|relationships|field-lvts|field-items|execution-(assign|start|save|submit)|rti-updates|inspection-updates|asset-register|asset-operation|asset-links|measurements|certificates|classifications|nr13-assess|perenco-line-list|perenco-tq-book|deadlines|project-create|project-update|project-preview|project-scope|project-plan|project-event|project-snapshot|project-snapshot-get))$/i;
+  const SCOPED_READ = /^companies\/[a-f0-9-]{36}\/(?:execution-context|execution\/[a-f0-9-]{36}\/(?:context|report|sources\/[a-z0-9-]+))$/i;
+  const SCOPED_PHOTO = /^companies\/[a-f0-9-]{36}\/execution\/[a-f0-9-]{36}\/items\/[a-f0-9-]{36}\/photos\/[a-f0-9-]{36}$/i;
+  const WRITE = /^(companies|sources(?:\/reference)?|import\/(preview|commit)|companies\/[a-f0-9-]{36}\/(hierarchy|assets|contracts|campaigns|inspections|lvts|lvt-items|photos|findings|rtis|documents|relationships|field-lvts|field-items|execution-(assign|start|save|submit|catalog-select)|rti-updates|inspection-updates|asset-register|asset-operation|asset-links|measurements|certificates|classifications|nr13-assess|perenco-line-list|perenco-tq-book|deadlines|project-create|project-update|project-preview|project-scope|project-plan|project-event|project-snapshot|project-snapshot-get))$/i;
   function failure(message, code, status) {
     const error = new Error(message);
     error.code = code;
@@ -87,9 +89,9 @@
           ? "A operação foi concluída na empresa de acesso anterior. Selecione-a para conferir antes de repetir."
           : "A empresa de acesso foi alterada. Consulte novamente a seleção atual.", "tenant_changed", 409);
     }
-    async function response(route, body, original) {
-      const write = body !== undefined || original !== undefined;
-      if (!(original && ["sources/document", "sources/photo"].includes(route)) && !(write ? WRITE : READ).test(route))
+    async function response(route, body, original, originalHeaders = {}) {
+      const write = body !== undefined || original !== undefined, scopedPhoto = SCOPED_PHOTO.test(route);
+      if (!(original && (["sources/document", "sources/photo"].includes(route) || scopedPhoto)) && !(write ? WRITE.test(route) : READ.test(route) || SCOPED_READ.test(route)))
         throw failure("Esta ação ainda não está disponível na Gestão conectada.", "unsupported_operation", 501);
       if (write && route === "sources" && !/\.xlsx$/i.test(body?.name || ""))
         throw failure("A importação de listas aceita somente XLSX. Use o vínculo documental para arquivar um PDF original sem interpretação automática.", "unsupported_format", 415);
@@ -107,8 +109,9 @@
       };
       if (selectedTenant && route !== "tenants") headers["X-Pires-Tenant"] = selectedTenant;
       if (original) {
-        headers["Content-Type"] = route === "sources/photo" ? (/\.png$/i.test(original.name) ? "image/png" : "image/jpeg") : /\.pdf$/i.test(original.name) ? "application/pdf" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+        headers["Content-Type"] = route === "sources/photo" || scopedPhoto ? (/\.png$/i.test(original.name) ? "image/png" : "image/jpeg") : /\.pdf$/i.test(original.name) ? "application/pdf" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
         headers["X-Pires-Source-Name"] = encodeURIComponent(original.name);
+        if (scopedPhoto) headers["X-Pires-Execution-Version"] = String(originalHeaders.executionVersion);
       } else if (write) headers["Content-Type"] = "application/json";
       let result;
       try {
@@ -177,8 +180,25 @@
       if (typeof data?.id !== "string" || !data.id) throw failure("A API não confirmou a fonte da fotografia.", "invalid_response", 502);
       return data;
     }
+    async function uploadInspectionPhoto(file, scope) {
+      if (!file || typeof file.name !== "string" || !/\.(jpe?g|png)$/i.test(file.name) || typeof file.arrayBuffer !== "function")
+        throw failure("Anexe a fotografia original JPEG ou PNG.", "unsupported_format", 415);
+      if (!Number.isInteger(file.size) || file.size < 1 || file.size > 8 * 1024 * 1024)
+        throw failure("A fotografia original deve ter entre 1 byte e 8 MiB.", "invalid_source_size", 413);
+      if (!["ownerId", "inspectionId", "lvtItemId", "requestId"].every(key => UUID.test(scope?.[key] || "")) || !Number.isInteger(scope.executionVersion) || scope.executionVersion < 1)
+        throw failure("Confirme a inspeção, o item e a versão antes de anexar a fotografia.", "invalid_inspection_scope", 400);
+      const route = "companies/" + scope.ownerId + "/execution/" + scope.inspectionId + "/items/" + scope.lvtItemId + "/photos/" + scope.requestId,
+        revision = tenantRevision, result = await response(route, undefined, file, scope);
+      let data;
+      try { data = await result.json(); }
+      catch { throw failure("Resposta inválida ao vincular a fotografia à inspeção.", "invalid_response", 502); }
+      checkTenant(route, revision, true);
+      if (data?.linked !== true || !UUID.test(data.photo?.id || "") || data.inspectionId !== scope.inspectionId || data.requestId !== scope.requestId || data.photo.lvtItemId !== scope.lvtItemId)
+        throw failure("A API não confirmou o vínculo da fotografia ao item da inspeção.", "invalid_response", 502);
+      return data;
+    }
     async function download(route) {
-      if (!/^companies\/[a-f0-9-]{36}\/sources\/[a-z0-9-]+$/i.test(route))
+      if (!/^companies\/[a-f0-9-]{36}\/(?:sources\/[a-z0-9-]+|execution\/[a-f0-9-]{36}\/sources\/[a-z0-9-]+)$/i.test(route))
         throw failure("Documento de origem inválido.", "invalid_source", 400);
       const revision = tenantRevision, result = await response(route),
         disposition = result.headers.get("Content-Disposition") || "";
@@ -194,7 +214,7 @@
       return { blob, name };
     }
     return {
-      config: settings, request, tenants, download, uploadDocument, uploadPhoto, setTenant,
+      config: settings, request, tenants, download, uploadDocument, uploadPhoto, uploadInspectionPhoto, setTenant,
       getTenant: () => tenant,
       signIn: (email, password) => cloud.signIn(email, password),
       signOut: async () => { await cloud.signOut(); setTenant(null); },

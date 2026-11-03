@@ -1,6 +1,7 @@
 'use strict';
 const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),{randomUUID,createHash}=require('node:crypto');
 const {setup}=require('./fixtures/gestao-postgres-fixture.cjs');
+const {catalogueMetadata,selectCatalogue}=require('./fixtures/gestao-explicit-catalogue.cjs');
 const candidate=fs.readFileSync(path.join(__dirname,'../supabase/inspection-execution.sql'),'utf8');
 async function fixture(t){
  const f=await setup();t.after(()=>f.close());
@@ -22,7 +23,7 @@ async function fixture(t){
  f.contract=await f.exec('contracts.create',{requestId:randomUUID(),name:'Contrato fixture',source:'Fixture',modules:['integridade'],assetIds:[f.asset.id]});
  f.campaign=await f.exec('campaigns.create',{requestId:randomUUID(),name:'Campanha fixture',source:'Fixture',contractId:f.contract.id,systemId:h.system.id,module:'integridade',assetIds:[f.asset.id],status:'rascunho'});
  f.inspection=async(type='visual')=>f.exec('inspections.create',{requestId:randomUUID(),assetId:f.asset.id,contractId:f.contract.id,campaignId:f.campaign.id,module:'integridade',type,status:'planejada',source:'Planejamento fixture'});
- f.assign=(i,professionalId=f.persons.executor)=>f.exec('execution.assign',{inspectionId:i.id,professionalId,expectedVersion:i.version,requestId:randomUUID()});
+ f.assign=async(i,professionalId=f.persons.executor)=>{const d=await f.exec('execution.assign',{inspectionId:i.id,professionalId,expectedVersion:i.version,requestId:randomUUID()});return i.type==='visual'&&f.catalogId?selectCatalogue(f,{ownerId:f.ownerId,inspectionId:i.id,catalogId:f.catalogId}):d;};
  f.today=(await f.db.query('select current_date::text d')).rows[0].d;
  return f;
 }
@@ -34,21 +35,23 @@ async function catalog(f){
  const src=await original(f),source={sourceId:src.id,fileHash:src.id,fileName:src.name,locator:{page:1}},id=randomUUID();
  const items=[1,2].map(n=>({id:'item-'+n,itemKey:String(n),component:'COMPONENTE EXCLUSIVO FIXTURE '+n,conditions:[{id:'c'+n,text:'CONDIÇÃO EXCLUSIVA FIXTURE '+n,source},{id:'c'+n+'b',text:'OUTRA CONDIÇÃO EXCLUSIVA FIXTURE '+n,source}],recommendations:[{id:'r'+n,text:'RECOMENDAÇÃO EXCLUSIVA FIXTURE '+n,conditionIds:['c'+n],source},{id:'r'+n+'b',text:'OUTRA RECOMENDAÇÃO EXCLUSIVA FIXTURE '+n,conditionIds:['c'+n+'b'],source}]}));
  await f.db.query('insert into pi_gestao_private.inspection_catalogs(tenant_id,owner_id,id,source_id,source_locator,items,verified_by,verified_at) values($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7,now())',[f.ids.tenantA,f.ownerId,id,src.id,JSON.stringify({page:1}),JSON.stringify(items),f.ids.adminA]);
+ await catalogueMetadata(f,{ownerId:f.ownerId,catalogId:id,contractIds:[f.contract.id],assetIds:[f.asset.id]});f.catalogId=id;
  return {id,items};
 }
 const save=(f,d,answers,extra={})=>f.exec('execution.save',{inspectionId:d.inspection.id,expectedVersion:d.execution.version,requestId:randomUUID(),observedOn:f.today,answers,...extra});
 
 test('execution: current permission gates, own assignments and no account or permission grants',async t=>{
- const f=await fixture(t),i=await f.inspection();
+ const f=await fixture(t);await catalog(f);const i=await f.inspection();
  const counts=()=>f.db.query('select (select count(*)::int from auth.users) users,(select count(*)::int from pi_gestao_private.pilot_access) grants,(select count(*)::int from pi_team_private.professionals) professionals');
  const before=(await counts()).rows[0];
  let d=await f.exec('execution.get',{inspectionId:i.id});assert.equal(d.canExecute,false);assert.equal(d.inspection.assigneeProfessionalId,undefined);assert.equal(d.professionals.length,3);
  await assert.rejects(f.exec('execution.start',{inspectionId:i.id,requestId:randomUUID()}),{code:'42501'});
  d=await f.assign(i,f.persons.readonly);assert.equal(d.inspection.assigneeName,'EXCLUSIVAMENTE FIXTURE readonly');
  const queue=await f.exec('execution.list',{},f.ids.inspector);assert.equal(queue.inspections.length,1);assert.equal(queue.professionalId,f.persons.readonly);assert.equal(queue.professionals.length,0);
- const read=await f.exec('execution.get',{inspectionId:i.id},f.ids.inspector);assert.equal(read.writeAllowed,false);assert.equal(read.canExecute,false);assert.match(read.executionBlockReason,/permissão/i);
+ const read=await f.exec('execution.get',{inspectionId:i.id},f.ids.inspector);assert.equal(read.writeAllowed,true);assert.equal(read.canExecute,true);assert.equal(read.canAssign,false);
  await assert.rejects(f.exec('execution.start',{inspectionId:i.id,requestId:randomUUID()}),{code:'42501'});
- await assert.rejects(f.exec('execution.start',{inspectionId:i.id,requestId:randomUUID()},f.ids.inspector),{code:'42501'});
+ const started=await f.exec('execution.start',{inspectionId:i.id,requestId:randomUUID()},f.ids.inspector);assert.equal(started.inspection.assigneeProfessionalId,f.persons.readonly);assert.equal(started.execution.createdBy,f.ids.inspector);
+ await assert.rejects(f.exec('state.get',{},f.ids.inspector),{code:'42501'});
  await assert.rejects(f.exec('execution.get',{inspectionId:i.id},f.ids.assistant),{code:'42501'});
  await assert.rejects(f.exec('execution.assign',{inspectionId:i.id,expectedVersion:d.inspection.version,professionalId:f.persons.other,requestId:randomUUID()},f.ids.inspector),{code:'42501'});
  await f.db.query('update pi_gestao_private.pilot_access set revoked_at=now() where user_id=$1',[f.ids.inspector]);
@@ -56,18 +59,22 @@ test('execution: current permission gates, own assignments and no account or per
  await assert.rejects(f.call(f.ids.tenantB,'execution.get',{ownerId:f.ownerId,inspectionId:i.id},f.ids.adminB),{code:'22023'});
  for(const role of ['anon','service_role'])await assert.rejects(f.asRole(role,null,db=>db.query("select public.pi_gestao_api($1,'execution.list',$2::jsonb)",[f.ids.tenantA,JSON.stringify({ownerId:f.ownerId})])),{code:'42501'});
  for(const name of ['ga_api','ga_api_operational','ga_api_prepared','ga_api_projects'])await assert.rejects(f.asRole('authenticated',f.ids.adminA,db=>db.query(`select pi_gestao_private.${name}($1,'state.get',$2::jsonb)`,[f.ids.tenantA,JSON.stringify({ownerId:f.ownerId})])),{code:'42501'});
- for(const table of ['inspection_executions','inspection_catalogs'])await assert.rejects(f.asRole('authenticated',f.ids.adminA,db=>db.query('select * from pi_gestao_private.'+table)),{code:'42501'});
+ for(const table of ['inspection_executions','inspection_catalogs','inspection_catalog_bindings'])await assert.rejects(f.asRole('authenticated',f.ids.adminA,db=>db.query('select * from pi_gestao_private.'+table)),{code:'42501'});
  const after=(await counts()).rows[0];assert.deepEqual({...after,grants:before.grants},before);assert.equal(after.grants,before.grants);
 });
 
 test('execution: no catalogue/default answer, stable draft and saved thickness stays thickness',async t=>{
  const f=await fixture(t),i=await f.inspection();let d=await f.assign(i);
- const input={inspectionId:i.id,requestId:randomUUID()};d=await f.exec('execution.start',input);
- assert.equal(d.catalog.status,'unavailable');assert.equal(d.execution.answers.length,0);assert.equal(d.execution.items.length,0);
+ const input={inspectionId:i.id,requestId:randomUUID()};assert.equal(d.execution,null);assert.equal(d.catalog.id,null);
+ await assert.rejects(f.exec('execution.start',input),{code:'22023'});
+ await catalog(f);const unselected=await f.exec('execution.get',{inspectionId:i.id});assert.equal(unselected.execution,null);assert.equal(unselected.catalog.id,null);
+ await assert.rejects(f.exec('execution.start',input),{code:'22023'});
+ await selectCatalogue(f,{ownerId:f.ownerId,inspectionId:i.id,catalogId:f.catalogId});d=await f.exec('execution.start',input);
+ assert.equal(d.execution.answers.length,0);assert.equal(d.execution.items.length,2);
  const id=d.execution.id;assert.equal((await f.exec('execution.start',input)).execution.id,id);assert.equal((await f.exec('execution.start',{...input,requestId:randomUUID()})).execution.id,id);
  d=await save(f,d,[]);await assert.rejects(f.exec('execution.submit',{inspectionId:i.id,expectedVersion:d.execution.version,requestId:randomUUID()}),{code:'22023'});
- await catalog(f);const stillEmpty=await f.exec('execution.get',{inspectionId:i.id});assert.equal(stillEmpty.catalog.status,'unavailable');assert.equal(stillEmpty.execution.items.length,0);
- await assert.rejects(save(f,d,[{catalogItemId:'item-1',itemKey:'1',conditionId:'c1',notCovered:false,photoIds:[]}]),{code:'22023'});
+ await catalog(f);const stillPinned=await f.exec('execution.get',{inspectionId:i.id});assert.equal(stillPinned.catalog.id,d.catalog.id);assert.equal(stillPinned.execution.items.length,2);
+ await assert.rejects(save(f,d,[{catalogItemId:'unselected-item',itemKey:'X',conditionId:'c1',notCovered:false,photoIds:[]}]),{code:'22023'});
  const thick=await f.inspection('espessura');await f.assign(thick);let m=await f.exec('execution.start',{inspectionId:thick.id,requestId:randomUUID()});assert.equal(m.execution.type,'espessura');assert.equal(m.execution.recordClass,'measurement_draft');
  m=await save(f,m,[],{instrument:'INSTRUMENTO EXCLUSIVO FIXTURE',readings:[{point:'P-A INFORMADO NA FIXTURE',value:'3.25',unit:'mm'}]});assert.equal(m.execution.type,'espessura');assert.equal(m.inspection.type,'espessura');assert.equal(m.execution.readings.length,1);
  await assert.rejects(save(f,m,[{catalogItemId:'item-1'}]),{code:'22023'});
@@ -108,7 +115,7 @@ test('execution: verified choices, item photographs, same RTI on edit/reload, te
 
 test('execution: old field draft is not duplicated and failed RTI transaction rolls back answers',async t=>{
  const f=await fixture(t),i=await f.inspection();const legacy=await f.exec('field_lvts.create',{inspectionId:i.id,requestId:randomUUID(),observedOn:f.today,inspector:'LEGADO EXCLUSIVO FIXTURE'});await f.assign(i);
- await assert.rejects(f.exec('execution.start',{inspectionId:i.id,requestId:randomUUID()}),/sem duplicação/);assert.equal((await f.exec('state.get')).lvt[0].id,legacy.id);
+ await assert.rejects(f.exec('execution.start',{inspectionId:i.id,requestId:randomUUID()}),{code:'22023'});const legacyState=await f.exec('state.get');assert.equal(legacyState.lvt.length,1);assert.equal(legacyState.lvt[0].id,legacy.id);assert.equal((await f.db.query('select count(*)::int n from pi_gestao_private.inspection_executions')).rows[0].n,0);
  await catalog(f);const j=await f.inspection();await f.assign(j);let d=await f.exec('execution.start',{inspectionId:j.id,requestId:randomUUID()}),src=await original(f,'image_jpeg');
  const photo=await f.exec('photos.create',{assetId:f.asset.id,lvtItemId:d.execution.items[0].lvtItemId,sourceId:src.id,locator:{section:'Item'},caption:'Fixture'});
  await f.db.exec("create function pi_gestao_private.fixture_execution_rti_failure() returns trigger language plpgsql as $$begin if new.kind='rti' then raise exception 'isolated RTI failure';end if;return new;end$$;create trigger fixture_execution_rti_failure before insert on pi_gestao_private.records for each row execute function pi_gestao_private.fixture_execution_rti_failure();");
@@ -117,7 +124,7 @@ test('execution: old field draft is not duplicated and failed RTI transaction ro
 });
 
 test('execution: current scope, staff revocation and catalogue provenance are rechecked',async t=>{
- const f=await fixture(t);const i=await f.inspection();await f.assign(i);let d=await f.exec('execution.start',{inspectionId:i.id,requestId:randomUUID()});
+ const f=await fixture(t);await catalog(f);const i=await f.inspection();await f.assign(i);let d=await f.exec('execution.start',{inspectionId:i.id,requestId:randomUUID()});
  await assert.rejects(f.exec('execution.assign',{inspectionId:i.id,requestId:randomUUID(),professionalId:f.persons.other,expectedVersion:d.inspection.version}),/trocar o responsável/);
  await f.db.query("update pi_gestao_private.records set body=jsonb_set(jsonb_set(body,'{assetIds}','[]'),'{moduleAssetIds,integridade}','[]') where tenant_id=$1 and owner_id=$2 and id=$3",[f.ids.tenantA,f.ownerId,f.contract.id]);
  await assert.rejects(f.exec('execution.get',{inspectionId:i.id}),{code:'42501'});assert.equal((await f.exec('execution.list')).inspections.length,0);
@@ -128,9 +135,10 @@ test('execution: current scope, staff revocation and catalogue provenance are re
  await f.db.query("select set_config('request.jwt.claim.sub','',false)");
  assert.equal((await f.exec('execution.get',{inspectionId:i.id})).canExecute,false);await assert.rejects(save(f,d,[]),{code:'42501'});
  await f.db.query("select set_config('request.jwt.claim.sub',$1,false)",[f.ids.adminA]);await f.db.query('update pi_team_private.professionals set access_revoked_at=null where tenant_id=$1 and id=$2',[f.ids.tenantA,f.persons.executor]);await f.db.query("select set_config('request.jwt.claim.sub','',false)");
- const c=await catalog(f);const j=await f.inspection();await f.assign(j);
+ const c=await catalog(f);const j=await f.inspection();const pending=await f.exec('execution.assign',{inspectionId:j.id,professionalId:f.persons.executor,expectedVersion:j.version,requestId:randomUUID()});
+ const expectedCatalogHash=pending.catalogChoices.find(choice=>choice.id===c.id).contentHash;
  await f.db.query("update pi_gestao_private.inspection_catalogs set items=jsonb_set(items,'{0,conditions,0,source,sourceId}','\"UNVERIFIED\"') where tenant_id=$1 and owner_id=$2 and id=$3",[f.ids.tenantA,f.ownerId,c.id]);
- await assert.rejects(f.exec('execution.start',{inspectionId:j.id,requestId:randomUUID()}),/proveniência/);assert.equal((await f.db.query('select count(*)::int n from pi_gestao_private.inspection_executions')).rows[0].n,1);
+ await assert.rejects(f.exec('execution.catalog.select',{inspectionId:j.id,catalogId:c.id,expectedCatalogHash,expectedVersion:pending.inspection.version,requestId:randomUUID()}),/proveniência/);assert.equal((await f.db.query('select count(*)::int n from pi_gestao_private.inspection_executions')).rows[0].n,1);
 });
 
 test('execution: removing recommendation preserves same open RTI and closed scope requires technical review',async t=>{

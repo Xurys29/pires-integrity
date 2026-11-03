@@ -23,6 +23,7 @@ const CREATE_ACTIONS = Object.freeze({
   "field-lvts": "field_lvts.create", "field-items": "field_items.create", "rti-updates": "rtis.update",
   "execution-assign": "execution.assign", "execution-start": "execution.start",
   "execution-save": "execution.save", "execution-submit": "execution.submit",
+  "execution-catalog-select": "execution.catalog.select",
   "inspection-updates": "inspections.update", "asset-register": "assets.register", "asset-operation": "assets.operation",
   "asset-links": "asset_links.create", measurements: "measurements.create", certificates: "certificates.create",
   classifications: "classifications.create", "nr13-assess": "nr13.assess", "perenco-tq-book": "perenco.tq_book", deadlines: "deadlines.create",
@@ -190,7 +191,7 @@ export function createGestaoHandler({ appOrigin, createUserClient, createService
     };
     if (allowedOrigin && origin === allowedOrigin) {
       headers["Access-Control-Allow-Origin"] = allowedOrigin;
-      headers["Access-Control-Allow-Headers"] = "authorization,apikey,content-type,x-pires-tenant,x-pires-source-name";
+      headers["Access-Control-Allow-Headers"] = "authorization,apikey,content-type,x-pires-tenant,x-pires-source-name,x-pires-execution-version";
       headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS";
       headers["Access-Control-Expose-Headers"] = "Content-Disposition";
     }
@@ -202,7 +203,7 @@ export function createGestaoHandler({ appOrigin, createUserClient, createService
         const method = request.headers.get("Access-Control-Request-Method") || "GET";
         if (!["GET", "POST"].includes(method.toUpperCase())) fail(405, "method_not_allowed", "Método não permitido.");
         const requested = (request.headers.get("Access-Control-Request-Headers") || "").toLowerCase().split(",").map((x) => x.trim()).filter(Boolean);
-        if (requested.some((x) => !["authorization", "apikey", "content-type", "x-pires-tenant", "x-pires-source-name"].includes(x)))
+        if (requested.some((x) => !["authorization", "apikey", "content-type", "x-pires-tenant", "x-pires-source-name", "x-pires-execution-version"].includes(x)))
           fail(403, "headers_denied", "Cabeçalhos não autorizados.");
         return new Response(null, { status: 204, headers });
       }
@@ -229,7 +230,7 @@ export function createGestaoHandler({ appOrigin, createUserClient, createService
       }
       async function access(selectedTenant = tenant) {
         const grant = await call("access.get", {}, selectedTenant);
-        if (grant?.tenant !== selectedTenant || grant?.actorUserId !== user.id || grant.pilot !== true || grant.read !== true || grant.role === "client")
+        if (grant?.tenant !== selectedTenant || grant?.actorUserId !== user.id || grant.pilot !== true || grant.read !== true || !["admin", "master", "planner", "inspector", "assistant"].includes(grant.role))
           fail(403, "access_denied", "Acesso indisponível para esta empresa.");
         return grant;
       }
@@ -259,8 +260,10 @@ export function createGestaoHandler({ appOrigin, createUserClient, createService
           mode: "supabase_integrado",
           tenant,
           pilot: true,
-          preparedSources: preparedSources.map(({id,name}) => ({id,name})),
-          capabilities: { workflowVersion: 2, inspectionExecutionVersion: 1, xlsx: true, pdf: false, xls: false, operations: true, documentOriginals: true, photoOriginals: true, xlsxMaxBytes: MAX_FILE, documentMaxBytes: MAX_DOCUMENT, photoMaxBytes: MAX_FILE, write: grant?.write === true },
+          role: grant?.role || null,
+          accessMode: !grant ? null : ["admin", "master"].includes(grant.role) ? "management" : ["planner", "assistant"].includes(grant.role) ? "consultation" : grant.role === "inspector" && grant.inspectionScopeVersion === 1 ? "assigned_inspector" : "scope_unavailable",
+          preparedSources: grant && ["admin", "master", "planner", "assistant"].includes(grant.role) ? preparedSources.map(({id,name}) => ({id,name})) : [],
+          capabilities: { workflowVersion: 2, inspectionExecutionVersion: 1, inspectorWorkspaceVersion: grant?.inspectionScopeVersion === 1 ? 1 : 0, assignedExecutionWrite: grant?.inspectionScopeVersion === 1 && grant?.inspectionWriteAllowed === true, xlsx: !grant || ["admin", "master", "planner", "assistant"].includes(grant.role), pdf: false, xls: false, operations: true, documentOriginals: !grant || ["admin", "master", "planner", "assistant"].includes(grant.role), photoOriginals: true, xlsxMaxBytes: MAX_FILE, documentMaxBytes: MAX_DOCUMENT, photoMaxBytes: MAX_FILE, write: grant?.write === true },
         });
       }
       if (route === "tenants" && request.method === "GET") {
@@ -271,12 +274,104 @@ export function createGestaoHandler({ appOrigin, createUserClient, createService
       if (!tenant) fail(400, "tenant_required", "Selecione a empresa de acesso.");
       const grant = await access();
       const write = request.method === "POST";
-      if (write && (grant.write !== true || !["admin", "master"].includes(grant.role)))
+      const manager = ["admin", "master"].includes(grant.role);
+      const genericRead = manager || ["planner", "assistant"].includes(grant.role);
+      const managerWrite = manager && grant.write === true;
+      const scopedInspectorWrite = grant.role === "inspector" && grant.inspectionScopeVersion === 1 && grant.inspectionWriteAllowed === true;
+      const parts = route.split("/");
+      const executionPost = parts.length === 3 && parts[0] === "companies" && UUID.test(parts[1] || "") && ["execution-start", "execution-save", "execution-submit"].includes(parts[2]);
+      const executionPhoto = write && parts.length === 8 && parts[0] === "companies" && UUID.test(parts[1] || "") && parts[2] === "execution" && UUID.test(parts[3] || "") && parts[4] === "items" && UUID.test(parts[5] || "") && parts[6] === "photos" && UUID.test(parts[7] || "");
+      if (!write && grant.role === "inspector" && grant.inspectionScopeVersion !== 1)
+        fail(403, "scoped_backend_required", "A programação do inspetor exige o backend com autorização por atividade. Acesso genérico não foi liberado.");
+      if (write && !managerWrite && !(scopedInspectorWrite && (executionPost || executionPhoto)))
         fail(403, "write_denied", "Esta operação exige administração da empresa de acesso.");
       const rawDocument = write && route === "sources/document", rawPhoto = write && route === "sources/photo";
-      const body = write && !rawDocument && !rawPhoto ? await jsonBody(request) : null;
+      const body = write && !rawDocument && !rawPhoto && !executionPhoto ? await jsonBody(request) : null;
       let service;
       const privileged = () => service || (service = createServiceClient());
+      async function downloadOriginal(source, recheck, expectedSha, scoped = false) {
+        const format = source?.format, definition = Object.hasOwn(SOURCE_FORMATS, format || "") ? SOURCE_FORMATS[format] : null;
+        const maxBytes = ["document_xlsx", "document_pdf"].includes(format) ? MAX_DOCUMENT : MAX_FILE;
+        if (!source || !definition || sourceFormat(source.name) !== (format === "document_xlsx" ? "xlsx" : format) || source.sha !== expectedSha || source.objectKey !== `${tenant}/${expectedSha}/original.${definition.extension}` || !Number.isSafeInteger(Number(source.size)) || Number(source.size) < 1 || Number(source.size) > maxBytes)
+          fail(502, "original_unavailable", "Não foi possível conferir a identidade do original.");
+        const revalidate = async () => {
+          const current = await recheck();
+          if (scoped && (!current || current.sha !== expectedSha))
+            fail(403, "access_denied", "O original não está mais autorizado para esta atividade.");
+          if (current?.sha && ["sha", "name", "format", "objectKey", "size"].some(key => String(current[key]) !== String(source[key])))
+            fail(409, "original_conflict", "O vínculo do original mudou durante a consulta. Reabra a atividade.");
+        };
+        await revalidate();
+        const downloaded = await privileged().storage.from(BUCKET).download(source.objectKey);
+        if (downloaded.error) fail(502, "original_unavailable", "Documento original indisponível.");
+        const bytes = await bytesOf(downloaded.data, Number(source.size));
+        if (bytes.byteLength !== Number(source.size) || await sha256(bytes) !== source.sha)
+          fail(502, "original_integrity_failed", "O original armazenado não passou na conferência de integridade.");
+        await revalidate();
+        return new Response(bytes, { status: 200, headers: { ...headers, "Content-Type": definition.mime, "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(source.name)}` } });
+      }
+      // The route identifies the canonical parent before reading any image
+      // bytes. A tenant-wide source upload is never an inspector capability.
+      if (executionPhoto) {
+        const versionText = request.headers.get("X-Pires-Execution-Version") || "";
+        if (!/^[1-9]\d*$/.test(versionText) || !Number.isSafeInteger(Number(versionText)))
+          fail(400, "invalid_execution_version", "Informe a versão atual da execução para vincular a foto.");
+        const payload = { ownerId: parts[1].toLowerCase(), inspectionId: parts[3].toLowerCase(), lvtItemId: parts[5].toLowerCase(), requestId: parts[7].toLowerCase(), expectedVersion: Number(versionText) };
+        let canonicalExecutionId;
+        const authorize = async () => {
+          await access();
+          const allowed = await call("execution.photo.authorize", payload);
+          if (allowed?.canUpload !== true || allowed.inspectionId !== payload.inspectionId || allowed.lvtItemId !== payload.lvtItemId || !UUID.test(allowed.executionId || ""))
+            fail(403, "access_denied", "A foto exige item da própria atividade atribuída e em rascunho.");
+          if (canonicalExecutionId && canonicalExecutionId !== allowed.executionId)
+            fail(409, "review_required", "O vínculo da execução mudou durante o envio. Reabra a atividade.");
+          canonicalExecutionId = allowed.executionId;
+          return allowed;
+        };
+        await authorize();
+        const { name, format, bytes } = await documentBody(request, true);
+        if (typeof validatePhoto !== "function") fail(503, "configuration_unavailable", "A validação de fotografias ainda não está disponível.");
+        let workbook;
+        try { workbook = await validatePhoto(bytes, { name, mime: SOURCE_FORMATS[format].mime }); }
+        catch { fail(400, "invalid_document_original", "A fotografia não passou na validação do original."); }
+        if (workbook?.format !== format || !Array.isArray(workbook.sheets) || workbook.sheets.length || workbook.metadata?.extraction !== "not_performed")
+          fail(400, "invalid_document_original", "O validador não confirmou uma fotografia original suportada.");
+        const definition = SOURCE_FORMATS[format], sha = await sha256(bytes), objectKey = `${tenant}/${sha}/original.${definition.extension}`;
+        await authorize();
+        const storage = privileged().storage.from(BUCKET);
+        let uploaded;
+        try { uploaded = await storage.upload(objectKey, bytes, { contentType: definition.mime, upsert: false }); }
+        catch { fail(503, "photo_upload_unconfirmed", "Não foi possível confirmar o envio da foto. Repita a mesma operação para reconciliar.", { requestId: payload.requestId, sourceHash: sha, originalStored: "unconfirmed", photoLinkConfirmed: false }); }
+        if (!uploaded || typeof uploaded !== "object")
+          fail(503, "photo_upload_unconfirmed", "O armazenamento não confirmou o envio da foto. Repita a mesma operação para reconciliar.", { requestId: payload.requestId, sourceHash: sha, originalStored: "unconfirmed", photoLinkConfirmed: false });
+        if (uploaded.error && !duplicateObject(uploaded.error))
+          fail(503, "photo_upload_unconfirmed", "Não foi possível confirmar o envio da foto. Repita a mesma operação para reconciliar.", { requestId: payload.requestId, sourceHash: sha, originalStored: "unconfirmed", photoLinkConfirmed: false });
+        try {
+          await authorize();
+          if (uploaded.error) {
+            const previous = await storage.download(objectKey);
+            if (previous.error) fail(502, "original_unavailable", "O original existente precisa ser conferido antes de vincular a foto.");
+            const existing = await bytesOf(previous.data, MAX_FILE);
+            if (existing.byteLength !== bytes.byteLength || await sha256(existing) !== sha)
+              fail(409, "original_conflict", "O objeto existente diverge da fotografia recebida. Nenhum arquivo foi substituído.");
+            await authorize();
+          }
+          const result = await privileged().rpc("pi_gestao_execution_photo", { p_tenant: tenant, p_actor: user.id, p_payload: { ...payload, source: { sha, name, size: bytes.byteLength, objectKey, workbook } } });
+          if (result.error) rpcFailure(result.error);
+          const linked = result.data;
+          if (linked?.linked !== true || linked.inspectionId !== payload.inspectionId || linked.executionId !== canonicalExecutionId || linked.requestId !== payload.requestId || !UUID.test(linked.photo?.id || "") || linked.photo.lvtItemId !== payload.lvtItemId || linked.source?.sha !== sha)
+            fail(502, "photo_link_unconfirmed", "A resposta não confirmou o vínculo canônico da foto. Consulte a atividade antes de repetir.");
+          return json(200, result.data);
+        } catch (error) {
+          // An uploaded object can already be shared or linked by a committed
+          // retry. Retain it and its hash; never delete it to imitate rollback.
+          if (error instanceof ApiFailure) {
+            error.extra = { ...error.extra, requestId: payload.requestId, sourceHash: sha, originalStored: true, photoLinkConfirmed: false };
+            throw error;
+          }
+          fail(503, "photo_link_unconfirmed", "O original foi preservado, mas o vínculo da foto não foi confirmado. Repita a mesma operação para reconciliar.", { requestId: payload.requestId, sourceHash: sha, originalStored: true, photoLinkConfirmed: false });
+        }
+      }
       if (write && (route === "sources" || route === "sources/reference" || rawDocument || rawPhoto)) {
         let name, format, bytes;
         if (route === "sources/reference") {
@@ -339,7 +434,6 @@ export function createGestaoHandler({ appOrigin, createUserClient, createService
           "O original foi preservado, mas o cadastro da fonte não foi confirmado. Consulte a situação antes de repetir.", { sourceHash: sha, originalStored: true });
         return json(200, result.data);
       }
-      const parts = route.split("/");
       if (parts[0] === "companies" && parts[1]) {
         const ownerId = parts[1].toLowerCase();
         if (!UUID.test(ownerId)) fail(400, "invalid_owner", "Empresa dona dos ativos inválida.");
@@ -347,25 +441,20 @@ export function createGestaoHandler({ appOrigin, createUserClient, createService
           return json(200, await call("execution.list", { ownerId }));
         if (!write && parts.length === 4 && parts[2] === "execution" && UUID.test(parts[3]))
           return json(200, await call("execution.get", { ownerId, inspectionId: parts[3].toLowerCase() }));
+        if (!write && parts.length === 3 && parts[2] === "execution-context")
+          return json(200, await call("execution.context", { ownerId }));
+        if (!write && parts.length === 5 && parts[2] === "execution" && UUID.test(parts[3]) && ["context", "report"].includes(parts[4]))
+          return json(200, await call("execution." + parts[4], { ownerId, inspectionId: parts[3].toLowerCase() }));
+        if (!write && parts.length === 6 && parts[2] === "execution" && UUID.test(parts[3]) && parts[4] === "sources" && SHA.test(parts[5])) {
+          const payload = { ownerId, inspectionId: parts[3].toLowerCase(), sourceId: parts[5] };
+          return await downloadOriginal(await call("execution.source", payload), () => call("execution.source", payload), payload.sourceId, true);
+        }
+        if (!genericRead && !write)
+          fail(403, "scoped_read_required", "Consulte somente a programação e os anexos da própria atividade atribuída.");
         if (!write && parts.length === 4 && parts[2] === "sources") {
           const sourceId = parts[3];
           if (!SHA.test(sourceId)) fail(400, "invalid_source", "Documento de origem inválido.");
-          const source = await call("sources.get", { ownerId, sourceId });
-          const format = source?.format, definition = Object.hasOwn(SOURCE_FORMATS, format || "") ? SOURCE_FORMATS[format] : null;
-          const maxBytes = ["document_xlsx", "document_pdf"].includes(format) ? MAX_DOCUMENT : MAX_FILE;
-          if (!source || !definition || sourceFormat(source.name) !== (format === "document_xlsx" ? "xlsx" : format) || source.sha !== sourceId || source.objectKey !== `${tenant}/${sourceId}/original.${definition.extension}` || !Number.isSafeInteger(Number(source.size)) || Number(source.size) < 1 || Number(source.size) > maxBytes)
-            fail(502, "original_unavailable", "Não foi possível conferir a identidade do original.");
-          await access();
-          const downloaded = await privileged().storage.from(BUCKET).download(source.objectKey);
-          if (downloaded.error) fail(502, "original_unavailable", "Documento original indisponível.");
-          const bytes = await bytesOf(downloaded.data, Number(source.size));
-          if (bytes.byteLength !== Number(source.size) || await sha256(bytes) !== source.sha)
-            fail(502, "original_integrity_failed", "O original armazenado não passou na conferência de integridade.");
-          await access();
-          return new Response(bytes, { status: 200, headers: {
-            ...headers, "Content-Type": definition.mime,
-            "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(source.name)}`,
-          } });
+          return await downloadOriginal(await call("sources.get", { ownerId, sourceId }), access, sourceId);
         }
         if (!write && parts.length === 3 && parts[2] === "state") return json(200, await call("state.get", { ownerId }));
         if (!write && parts.length === 4 && parts[2] === "history" && UUID.test(parts[3]))

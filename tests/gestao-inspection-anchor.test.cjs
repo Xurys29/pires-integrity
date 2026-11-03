@@ -6,6 +6,7 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs'),path=require('node:path');
 const {randomUUID,createHash}=require('node:crypto');
 const {setup}=require('./fixtures/gestao-postgres-fixture.cjs');
+const {catalogueMetadata,selectCatalogue}=require('./fixtures/gestao-explicit-catalogue.cjs');
 
 async function fixture(t){
  const f=await setup();t.after(()=>f.close());
@@ -31,6 +32,7 @@ async function fixture(t){
  f.start=async(type='visual')=>{
   const i=await f.callOwner('inspections.create',{requestId:randomUUID(),assetId:f.asset.id,contractId:f.contract.id,campaignId:f.campaign.id,module:'integridade',type,status:'planejada',source:'Planejamento sintético deliberadamente distinto da data observada',plannedDate:f.planned});
   await f.callOwner('execution.assign',{inspectionId:i.id,professionalId:f.professionalId,expectedVersion:i.version,requestId:randomUUID()});
+  if(type==='visual')await selectCatalogue(f,{ownerId:f.ownerId,inspectionId:i.id,catalogId:f.catalogId});
   return f.callOwner('execution.start',{inspectionId:i.id,requestId:randomUUID()});
  };
  return f;
@@ -43,6 +45,7 @@ async function catalog(f){
  const src=await original(f),source={sourceId:src.id,fileHash:src.id,fileName:src.name,locator:{page:1}},id=randomUUID();
  const items=[{id:'marco-item',itemKey:'1',component:'COMPONENTE SINTÉTICO DE MARCO',conditions:[{id:'condition-a',text:'CONDIÇÃO A SOMENTE FIXTURE',source},{id:'condition-b',text:'CONDIÇÃO B SOMENTE FIXTURE',source}],recommendations:[{id:'recommendation-a',text:'AÇÃO A SOMENTE FIXTURE',conditionIds:['condition-a','condition-b'],source},{id:'recommendation-b',text:'AÇÃO B SOMENTE FIXTURE',conditionIds:['condition-a','condition-b'],source}]}];
  await f.db.query('insert into pi_gestao_private.inspection_catalogs(tenant_id,owner_id,id,source_id,source_locator,items,verified_by,verified_at) values($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7,now())',[f.ids.tenantA,f.ownerId,id,src.id,JSON.stringify({page:1}),JSON.stringify(items),f.ids.adminA]);
+ await catalogueMetadata(f,{ownerId:f.ownerId,catalogId:id,contractIds:[f.contract.id],assetIds:[f.asset.id]});f.catalogId=id;
 }
 async function answerWithPhoto(f,d){
  const src=await original(f,'image_jpeg'),photo=await f.callOwner('photos.create',{assetId:f.asset.id,lvtItemId:d.execution.items[0].lvtItemId,sourceId:src.id,locator:{section:'ITEM SINTÉTICO 1'},caption:'FOTO SINTÉTICA DE MARCO'});

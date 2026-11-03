@@ -7,7 +7,7 @@ const root=path.resolve(__dirname,".."),output=path.join(root,"output/inspection
 const copy=value=>JSON.parse(JSON.stringify(value)),uuid=n=>"b0000000-0000-4000-8000-"+String(n).padStart(12,"0"),endpoint=resource=>API+prefix+resource,desktop={width:1440,height:1000},mobile={width:390,height:844};
 const extra={item:uuid(1),photo1:uuid(2),photo2:uuid(3),point:uuid(4),finding:uuid(5),rti:uuid(6),foreignItem:uuid(7),foreignInspection:uuid(8),foreignExecution:uuid(9)};
 const baseCommit=execFileSync("git",["rev-parse","HEAD"],{cwd:root,encoding:"utf8"}).trim();
-const sourceFiles=["app/gestao-inspection.js","app/gestao-tag-report.js","app/gestao-flow.js","app/gestao-asset-cards.js","tests/gestao-inspection-browser.cjs","tests/gestao-inspection-outcomes-browser.cjs"];
+const sourceFiles=["app/gestao.js","app/gestao-connected.js","app/gestao-inspection.js","app/gestao-tag-report.js","app/gestao-flow.js","app/gestao-asset-cards.js","tests/gestao-inspection-browser.cjs","tests/gestao-inspection-outcomes-browser.cjs"];
 const sha=bytes=>crypto.createHash("sha256").update(bytes).digest("hex");
 async function route(f,module="integridade",view="execucao",id=ids.visual,contract=ids.contract){await f.page.evaluate(hash=>{location.hash=hash;},"#gestao/"+ids.owner+"/"+module+"/"+view+"/"+id+"?contrato="+contract);await f.page.waitForFunction(view=>document.getElementById("flowView")?.dataset.view===view,view);}
 async function ready(f){await f.page.locator('.inspection-workspace[data-inspection-id="'+ids.visual+'"][data-execution-id="'+ids.visualExecution+'"]').waitFor();}
@@ -27,7 +27,7 @@ function prepare(f,options={}){
   f.fixtureNoHandshake=options.handshake===false;if(f.fixtureNoHandshake){delete ex.outcome;delete ex.coverage;s.lvt=[copy(ex)];}f.fixtureReceipts=new Map();f.mockRejections=[];f.reportRequests=[];f.detailReads=0;
 }
 function detail(f){
-  const ex=f.executions.get(ids.visual),ins=copy(f.state.inspection[0]),canWrite=f.fixtureRole!=="inspetor";ins.executionId=ex.id;ins.executionStatus=ex.status;ins.progress=copy(ex.progress);ins.assigneeName="INSPETOR EXISTENTE SOMENTE FIXTURE";
+  const ex=f.executions.get(ids.visual),ins=copy(f.state.inspection[0]),canWrite=f.fixtureRole!=="inspector";ins.executionId=ex.id;ins.executionStatus=ex.status;ins.progress=copy(ex.progress);ins.assigneeName="INSPETOR EXISTENTE SOMENTE FIXTURE";
   return {...(f.fixtureNoHandshake?{}:{outcomeWorkflowVersion:1}),actorUserId:ids.user,professionalId:ids.professional,canAssign:canWrite,canExecute:canWrite,writeAllowed:canWrite,professionals:canWrite?copy(f.professionals):[],inspection:ins,execution:copy(ex),catalog:copy(f.catalog),points:copy(f.state.document.filter(row=>row.recordClass==="field_point_reference")),executionBlockReason:canWrite?null:"Seu acesso atual permite consulta."};
 }
 function snapshot(f){
@@ -69,7 +69,7 @@ async function fixtureRoutes(f){
     }
     if(method==="POST"&&[prefix+"execution-save",prefix+"execution-submit"].includes(resource)){
       const operation=resource.slice(prefix.length),body=req.postDataJSON();f.writes.push({operation,body:copy(body)});
-      if(f.fixtureRole==="inspetor")return json({error:"Consulta somente",code:"access_denied"},403);
+      if(f.fixtureRole==="inspector")return json({error:"Consulta somente",code:"access_denied"},403);
       const ex=f.executions.get(ids.visual),key=operation+":"+body.requestId;
       if(f.fixtureReceipts.has(key))return json(copy(f.fixtureReceipts.get(key)));
       if(body.expectedVersion!==ex.version)return json({error:"Rascunho alterado",code:"version_conflict"},409);
@@ -80,7 +80,7 @@ async function fixtureRoutes(f){
   });
 }
 async function create(browser,base,options={}){
-  const f=await fixturePage(browser,base,{viewport:options.viewport||desktop,role:options.role||"admin"});f.fixtureRole=options.role||"admin";prepare(f,options);await fixtureRoutes(f);await refresh(f);await route(f);await ready(f);return f;
+  const f=await fixturePage(browser,base,{viewport:options.viewport||desktop,role:options.role||"admin"});f.fixtureRole=options.role==="inspetor"?"inspector":options.role||"admin";prepare(f,options);await fixtureRoutes(f);await refresh(f);await route(f);await ready(f);return f;
 }
 const item=f=>f.page.locator('[data-catalog-item-id="fixture-item-1"]');
 async function chooseGood(f,withNoAction=false){await item(f).locator('[name="conditionId"]').selectOption("fixture-condition-1");if(withNoAction)await item(f).locator('[name="recommendationId"]').selectOption("fixture-no-treatment");await f.page.locator('[name="outcome"]').selectOption("good_condition");}
@@ -137,8 +137,8 @@ test("O12","Catálogo legado não habilita boas condições por ausência de RTI
   await item(f).locator('[name="conditionId"]').selectOption("fixture-condition-1");assert.equal(await f.page.locator('[name="outcome"] option[value="good_condition"]').evaluate(el=>el.disabled),true);assert.equal(f.state.rti.length,0);assert.ok(["pending",""].includes(await f.page.locator('[name="outcome"]').inputValue()));return {legacyPending:true,goodConditionNotInferred:true,rtis:0};
 },{legacy:true});
 test("O13","Leitura de inspetor conserva controles desabilitados e não amplia permissões",mobile,["Abrir execução atribuída usando fixture write=false.","Conferir que resultado/cobertura/salvar continuam desabilitados e sem POST."],async f=>{
-  assert.equal(await f.page.locator('[name="outcome"]').isDisabled(),true);assert.equal(await f.page.getByRole("button",{name:"Salvar rascunho",exact:true}).isDisabled(),true);assert.equal(f.writes.length,0);return {writeAllowed:false,fixturePostCount:0,limits:"Auth/role are simulated; actual SQL authorization is tested separately."};
-},{role:"inspetor"});
+  assert.equal(await f.page.locator('[name="outcome"]').isDisabled(),true);assert.equal(await f.page.getByRole("button",{name:"Salvar rascunho",exact:true}).isDisabled(),true);assert.equal(f.writes.length,0);assert.ok(f.calls.some(call=>call.resource===prefix+"execution-context"));assert.equal(f.calls.some(call=>call.resource===prefix+"state"||call.resource.startsWith(prefix+"sources/")||call.resource.startsWith(prefix+"reports/")),false);return {writeAllowed:false,fixturePostCount:0,genericOwnerReads:0,limits:"Auth/role are simulated; actual SQL authorization is tested separately."};
+},{role:"inspector"});
 
 
 test("O14","Mudança para condição incompatível não mantém declaração de boas condições válida",mobile,["Selecionar boas condições e cobertura, sem salvar.","Alterar para condição sem suporte técnico de boas condições e tentar salvar."],async f=>{
@@ -154,7 +154,7 @@ test("O16","Backend sem handshake não apresenta fluxo novo como habilitado nem 
 },{handshake:false});
 
 async function main(){
-  fs.mkdirSync(output,{recursive:true});const startSourceHashes=Object.fromEntries(sourceFiles.map(name=>[name,sha(fs.readFileSync(path.join(root,name)))])),sourceSetDigest=sha(Buffer.from(JSON.stringify(startSourceHashes)));const originalHarnessAtBase=execFileSync("git",["show",baseCommit+":tests/gestao-inspection-browser.cjs"],{cwd:root});assert.equal(startSourceHashes["tests/gestao-inspection-browser.cjs"],sha(originalHarnessAtBase),"Original fixture harness was changed");const filter=process.argv.find(x=>x.startsWith("--case=")),selected=filter?scenarios.filter(s=>filter.slice(7).split(",").includes(s.id)):scenarios;if(!selected.length)throw Error("No matching case");
+  fs.mkdirSync(output,{recursive:true});const startSourceHashes=Object.fromEntries(sourceFiles.map(name=>[name,sha(fs.readFileSync(path.join(root,name)))])),sourceSetDigest=sha(Buffer.from(JSON.stringify(startSourceHashes)));const originalHarnessAtBase=execFileSync("git",["show",baseCommit+":tests/gestao-inspection-browser.cjs"],{cwd:root}),fixtureHarnessChangedFromBase=startSourceHashes["tests/gestao-inspection-browser.cjs"]!==sha(originalHarnessAtBase);const filter=process.argv.find(x=>x.startsWith("--case=")),selected=filter?scenarios.filter(s=>filter.slice(7).split(",").includes(s.id)):scenarios;if(!selected.length)throw Error("No matching case");
   const {server,base}=await staticServer();let browser;const file=path.join(output,"outcomes-browser-results.json"),prior=filter&&fs.existsSync(file)?JSON.parse(fs.readFileSync(file,"utf8")).results:[],results=prior.filter(r=>!selected.some(s=>s.id===r.id));
   try{browser=await chromium.launch({executablePath:process.env.PIRES_CHROMIUM||"/usr/bin/chromium",headless:true,args:["--no-sandbox"]});
     for(const scenario of selected){let f;const result={id:scenario.id,title:scenario.title,viewport:scenario.viewport,reproduction:scenario.steps,evidenceType:"Real local UI/PDF; synthetic HTTP/Auth/catalogue contract only",productionTested:false,sourceSetDigest};
@@ -162,7 +162,7 @@ async function main(){
       catch(error){result.status="FAIL";result.error=error.message;result.stack=error.stack;process.exitCode=1;}
       finally{if(f){result.screenshot=scenario.id+"-"+scenario.viewport.width+".png";await f.page.screenshot({path:path.join(output,result.screenshot),fullPage:true}).catch(()=>{});result.pageErrors=f.errors;result.unexpectedRequests=f.unexpected;result.fixtureWrites=f.writes;if(result.status==="FAIL")result.dom=await f.page.evaluate(()=>({url:location.href,text:document.body.innerText.slice(-20000)})).catch(()=>null);await f.context.close();}results.push(result);results.sort((a,b)=>a.id.localeCompare(b.id));fs.writeFileSync(file,JSON.stringify({baseCommit,workingTreeUnderTest:true,fixtureOnly:true,productionTested:false,results},null,2)+"\n");console.log(scenario.id+" "+result.status+" "+scenario.title);}
     }
-    const sourceHashes=Object.fromEntries(sourceFiles.map(name=>[name,sha(fs.readFileSync(path.join(root,name)))]));assert.deepEqual(sourceHashes,startSourceHashes,"Product/test sources changed during this browser run");const summary={baseCommit,workingTreeUnderTest:true,passed:results.filter(r=>r.status==="PASS").length,failed:results.filter(r=>r.status==="FAIL").length,total:results.length,sourceHashes,sourceSetDigest,selectedCases:selected.map(s=>s.id),coverageAllCasesCurrentSources:results.every(r=>r.sourceSetDigest===sourceSetDigest),fixtureOnly:true,productionTested:false,pdfSaveCaptured:true,libraryUploads:0,originalHarnessEdited:false,limits:["HTTP/Auth/catalogue/backend mutation are synthetic isolated contracts, not SQL/RLS/Supabase evidence.","Real UI, image decoding, jsPDF and canonical report helper are exercised; PDF save is captured without issuing a technical report.","Field point references have no integrated isometric geometry or verified physical location.","No real catalogue, risk matrix, deadline policy, identities or production data were installed or changed."]};fs.writeFileSync(path.join(output,"outcomes-browser-summary.json"),JSON.stringify(summary,null,2)+"\n");console.log(JSON.stringify(summary));
+    const sourceHashes=Object.fromEntries(sourceFiles.map(name=>[name,sha(fs.readFileSync(path.join(root,name)))]));assert.deepEqual(sourceHashes,startSourceHashes,"Product/test sources changed during this browser run");const summary={baseCommit,workingTreeUnderTest:true,passed:results.filter(r=>r.status==="PASS").length,failed:results.filter(r=>r.status==="FAIL").length,total:results.length,sourceHashes,sourceSetDigest,selectedCases:selected.map(s=>s.id),coverageAllCasesCurrentSources:results.every(r=>r.sourceSetDigest===sourceSetDigest),fixtureOnly:true,productionTested:false,pdfSaveCaptured:true,libraryUploads:0,originalHarnessEdited:fixtureHarnessChangedFromBase,fixtureContract:"assigned_inspector_v1",limits:["HTTP/Auth/catalogue/backend mutation are synthetic isolated contracts, not SQL/RLS/Supabase evidence.","Real UI, image decoding, jsPDF and canonical report helper are exercised; PDF save is captured without issuing a technical report.","Field point references have no integrated isometric geometry or verified physical location.","No real catalogue, risk matrix, deadline policy, identities or production data were installed or changed."]};fs.writeFileSync(path.join(output,"outcomes-browser-summary.json"),JSON.stringify(summary,null,2)+"\n");console.log(JSON.stringify(summary));
   }finally{await browser?.close();await new Promise(resolve=>server.close(resolve));}
 }
 if(require.main===module)main().catch(error=>{console.error(error);process.exitCode=1;});

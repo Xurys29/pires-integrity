@@ -6,6 +6,8 @@ A verificação de 28/10/2026 comparou os 60 arquivos servidos publicamente e to
 
 Esta branch de inspeção contém alterações ainda não publicadas sobre o commit `6093ff37b10dd2246501ed790c8b0ab498508457`. O manifesto e o recibo em `release/` continuam como evidência daquela base, sem serem reescritos para as alterações. O recorte, os testes e as dependências de catálogo/autorização estão em [INSPECAO-REVISAO.txt](INSPECAO-REVISAO.txt). O SQL de inspeção é um candidato de revisão, sem aplicação em produção.
 
+O recorte local mais recente de acesso por atribuição, anexos e catálogo explícito/versionado está em [INSPECAO-ATRIBUICAO-CATALOGO-20261103.md](INSPECAO-ATRIBUICAO-CATALOGO-20261103.md), com provas locais e dependências de programação, homologação e recuperação.
+
 As correções de 30/10 para isolamento dos relatórios por contrato, distinção entre progresso administrativo e emissão técnica e coerência da fila com o escopo vigente estão em [INSPECAO-CORRECOES-20261030.md](INSPECAO-CORRECOES-20261030.md). Continuam somente na versão em revisão.
 
 A revisão de 03/11 prepara a conferência offline do catálogo, registra o marco do prazo pela inspeção realizada e acrescenta um rascunho individual de conferência por TAG. Fontes, testes e limites estão em [INSPECAO-CATALOGO-TAG-20261103.md](INSPECAO-CATALOGO-TAG-20261103.md). Catálogo real e matriz permanecem sem ativação; o rascunho não é relatório técnico emitido nem reprodução do modelo final de tubulação.

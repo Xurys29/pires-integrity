@@ -86,7 +86,7 @@
       if (connectedError) throw connectedError;
       try { return await connected.request(route, body); }
       catch (error) {
-        if ([401, 403].includes(error.status)) requireLogin();
+        if ([401, 403].includes(error.status)) { requireLogin(); msg(error.message, true); }
         throw error;
       }
     }
@@ -108,6 +108,47 @@
   }
   const path = (tail) =>
     "companies/" + encodeURIComponent(company) + "/" + tail;
+  const assignedInspector = () => connectedMode && connectedCapabilities.accessMode === "assigned_inspector";
+  const scopedInspectionBackend = () => connectedMode && connectedCapabilities.inspectorWorkspaceVersion === 1;
+  function hideConnectedData() {
+    state = null; $("workspace").hidden = true;
+    $("tools").replaceChildren(); $("detail").hidden = true;
+    flow?.reset();
+  }
+  function applyConnectedCapabilities(status) {
+    const capabilities = status.capabilities || {}, role = status.role,
+      manager = ["admin", "master"].includes(role) || !role && capabilities.write === true,
+      consultation = ["planner", "assistant"].includes(role),
+      mode = status.accessMode || (manager ? "management" : consultation ? "consultation" : null),
+      validMode = mode === "management" && manager || mode === "consultation" && consultation ||
+        mode === "assigned_inspector" && role === "inspector" && capabilities.inspectorWorkspaceVersion === 1;
+    if (!validMode) {
+      hideConnectedData();
+      throw Error("Esta versão do backend ainda não disponibiliza sua área restrita de inspeções. Nenhuma consulta geral de clientes ou anexos foi realizada.");
+    }
+    if (connectedCapabilities.accessMode && connectedCapabilities.accessMode !== mode) hideConnectedData();
+    connectedCapabilities = { ...capabilities, write: mode === "management" && capabilities.write === true, accessMode: mode, actorRole: role, preparedSources: mode === "management" ? status.preparedSources || [] : [] };
+    connectedPermissions(mode === "management" && capabilities.write === true);
+  }
+  async function loadConnectedState() {
+    const restricted = assignedInspector(), ownerId = company, tenantId = connected?.getTenant(),
+      result = await api(path(restricted ? "execution-context" : "state"));
+    if (restricted && (result.inspectionScopeVersion !== 1 || result.scopeMode !== "assigned_inspector" || result.company?.id !== ownerId)) {
+      if (company === ownerId && connected?.getTenant() === tenantId) hideConnectedData();
+      throw Error("A API não confirmou o contexto restrito às suas atividades. Nenhuma consulta geral será usada como alternativa.");
+    }
+    return result;
+  }
+  function sourceRoute(sourceId, inspectionId) {
+    if (!assignedInspector()) return path("sources/" + sourceId);
+    if (!scopedInspectionBackend() || !inspectionId || !state?.inspection?.some(record => record.id === inspectionId))
+      throw Error("Abra uma inspeção atribuída para consultar seus anexos.");
+    return path("execution/" + inspectionId + "/sources/" + sourceId);
+  }
+  async function downloadInspectionSource(sourceId, inspectionId) {
+    try { return await connected.download(sourceRoute(sourceId, inspectionId)); }
+    catch (error) { if ([401, 403].includes(error.status)) operationalError(error); throw error; }
+  }
   function button(text, fn, parent, cls) {
     const b = el("button", text, cls);
     b.type = "button";
@@ -214,8 +255,7 @@
     if (connectedMode) {
       const status = await api("status");
       if (request !== stateRequest) return;
-      connectedCapabilities = {...status.capabilities, preparedSources: status.preparedSources || []};
-      connectedPermissions(connectedCapabilities.write === true);
+      applyConnectedCapabilities(status);
     }
     const list = await api("companies");
     if (request !== stateRequest) return;
@@ -243,7 +283,7 @@
     $("workspace").hidden = false;
     $("logout").hidden = false;
     if (company) {
-      const nextState = await api(path("state"));
+      const nextState = connectedMode ? await loadConnectedState() : await api(path("state"));
       if (request !== stateRequest) return;
       state = nextState;
       render();
@@ -336,16 +376,22 @@
     else msg(list.length ? "Selecione a empresa de acesso para consultar os ativos." : "Esta conta não possui empresa de acesso disponível para Gestão de Ativos.");
   }
   function connectedPermissions(write) {
-    for (const id of ["newCompany", "newAsset", "importButton"])
-      $(id).disabled = !write;
+    for (const id of ["newCompany", "newAsset", "importButton"]) {
+      $(id).disabled = !write; $(id).hidden = assignedInspector();
+    }
+    $("calculatorsLink").hidden = assignedInspector();
+    $("companyLabel").textContent = assignedInspector() ? "Cliente da programação" : "Cliente";
     $("connectedWriteNotice").hidden = write;
+    $("connectedWriteNotice").textContent = assignedInspector()
+      ? "Área restrita às atividades atribuídas. A autorização para executar é conferida em cada inspeção; cadastros administrativos não estão disponíveis."
+      : "Seu acesso não permite alterar cadastros administrativos. As ações disponíveis são conferidas pelo servidor.";
     if (connectedMode) $("rtiFilter").disabled = false;
   }
   async function refresh() {
     if (authOnlyMode) return loadAccountWorkspace();
     if (!company) return load();
     const request = ++stateRequest,
-      nextState = await api(path("state"));
+      nextState = connectedMode ? await loadConnectedState() : await api(path("state"));
     if (request !== stateRequest) return;
     state = nextState;
     render();
@@ -2168,6 +2214,7 @@
       state, mode: authOnlyMode ? "account" : connectedMode ? "connected" : "local",
       write: connectedMode && connectedCapabilities.write === true && connectedCapabilities.operations === true,
       capabilities: connectedCapabilities,
+      assignedInspector: assignedInspector(),
     });
   function operationalError(error) {
     if ([401, 403].includes(error.status)) requireLogin();
@@ -2175,7 +2222,9 @@
   }
   async function downloadSource(sourceId) {
     if (connectedMode) {
-      const { blob, name } = await connected.download(path("sources/" + sourceId)),
+      const route = assignedInspector() ? window.PiresGestaoFlow?.parseHash(window.location.hash) : null,
+        inspectionId = route?.module === "integridade" && route.view === "execucao" ? route.itemId : null,
+        { blob, name } = await downloadInspectionSource(sourceId, inspectionId),
         url = URL.createObjectURL(blob), anchor = el("a");
       anchor.href = url; anchor.download = name; document.body.append(anchor); anchor.click(); anchor.remove();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
@@ -2208,7 +2257,13 @@
     onOperation: (parent, operation, defaults) => operational?.render(parent, operation, defaults),
     onInspectionRequest: (operation, body) => api(path(operation), body),
     onInspectionRefresh: refresh,
-    onInspectionPhoto: (file) => connected.uploadPhoto(file),
+    onInspectionPhoto: async (file, scope) => {
+      try {
+        if (scopedInspectionBackend()) return await connected.uploadInspectionPhoto(file, { ...scope, ownerId: company });
+        if (assignedInspector()) throw Error("O envio restrito de fotos não está disponível neste backend.");
+        return await connected.uploadPhoto(file);
+      } catch (error) { if ([401, 403].includes(error.status)) operationalError(error); throw error; }
+    },
     async onInspectionReport(selected) {
       const ownerId = company, tenantId = connected.getTenant(), routeHash = window.location.hash, helper = window.PiresGestaoTagReport,
         current = () => company === ownerId && connected.getTenant() === tenantId && window.location.hash === routeHash && !$("workspace").hidden;
@@ -2220,7 +2275,7 @@
       if (inspection?.id !== selected.inspectionId || execution?.id !== selected.executionId || inspection.version !== selected.inspectionVersion || execution.version !== selected.executionVersion || inspection.type !== "visual" || execution.type !== "visual")
         throw Error("A execução salva mudou. Atualize a ficha antes de conferir o rascunho.");
       const scope = { ownerId, contractId: inspection.contractId, systemId: inspection.systemId, assetId: inspection.assetId, inspectionId: inspection.id, executionId: execution.id },
-        reportPath = "reports/contracts/" + scope.contractId + "/system/" + scope.systemId,
+        reportPath = assignedInspector() ? "execution/" + scope.inspectionId + "/report" : "reports/contracts/" + scope.contractId + "/system/" + scope.systemId,
         snapshot = await api(path(reportPath));
       if (!current()) throw Error("O contexto mudou. Abra a inspeção novamente.");
       const frozen = await helper.freeze({ scope, detail, snapshot }), images = new Map(), originals = new Map();
@@ -2231,7 +2286,7 @@
         const sourceId = photo.source?.sourceId || photo.sourceId;
         if (!sourceId) continue;
         try {
-          if (!originals.has(sourceId)) originals.set(sourceId, connected.download(path("sources/" + sourceId)));
+          if (!originals.has(sourceId)) originals.set(sourceId, downloadInspectionSource(sourceId, scope.inspectionId));
           const { blob } = await originals.get(sourceId);
           if (!current()) throw Error("O contexto mudou. Abra a inspeção novamente.");
           if (blob.size > 8 * 1024 * 1024) throw Object.assign(Error("Foto excede o limite de conferência."), { code: "report_resource_limit" });
@@ -2282,11 +2337,13 @@
     async onPhoto(photo) {
       const sourceId = photo.source?.sourceId || photo.sourceId;
       if (!sourceId) throw Error("Fonte original da foto não disponível.");
-      const { blob } = await connected.download(path("sources/" + sourceId));
+      const inspectionId = photo.inspectionId || state?.lvt?.find(record => record.id === photo.lvtId)?.inspectionId,
+        { blob } = await downloadInspectionSource(sourceId, inspectionId);
       if (!["image/jpeg", "image/png"].includes(blob.type) || blob.size > 8 * 1024 * 1024) throw Error("A fonte não é uma fotografia JPEG/PNG suportada.");
       return new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = () => reject(Error("Não foi possível abrir a fotografia original.")); reader.readAsDataURL(blob); });
     },
     async onReport(systemId, campaignId, contractId = "") {
+      if (assignedInspector()) throw Error("A conferência do inspetor é individual por atividade atribuída.");
       const ownerId = company, tenantId = connected.getTenant(), routeHash = window.location.hash, helper = window.PiresGestaoReportPDF,
         current = () => company === ownerId && connected.getTenant() === tenantId && window.location.hash === routeHash && !$("workspace").hidden;
       if (contractId && !state.contract.some(record => record.id === contractId && record.modules?.includes("integridade")))

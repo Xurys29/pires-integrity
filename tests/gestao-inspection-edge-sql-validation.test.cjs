@@ -67,21 +67,23 @@ test('local Edge core -> candidate SQL: type, stable draft, replay, stale save a
  const after=await f.send('execution/'+i.id);assert.equal(after.status,200);assert.equal(after.data.execution.id,eid);assert.equal(after.data.execution.version,saved.data.execution.version);assert.equal(after.data.execution.readings.length,1);
  assert.equal((await f.db.query('select count(*)::int n from pi_gestao_private.inspection_executions')).rows[0].n,1);
  const visual=await f.inspection('visual');await f.send('execution-assign',{inspectionId:visual.id,professionalId:f.persons.admin,expectedVersion:visual.version,requestId:randomUUID()});
- const v=await f.send('execution-start',{inspectionId:visual.id,requestId:randomUUID()});assert.equal(v.status,200);assert.equal(v.data.execution.answers.length,0);assert.equal(v.data.catalog.status,'unavailable');
- const submit=await f.send('execution-submit',{inspectionId:visual.id,expectedVersion:v.data.execution.version,requestId:randomUUID()});assert.equal(submit.status,400);
+ const v=await f.send('execution-start',{inspectionId:visual.id,requestId:randomUUID()});assert.equal(v.status,400);assert.equal(v.data.code,'validation_failed');
+ const pending=await f.send('execution/'+visual.id);assert.equal(pending.status,200);assert.equal(pending.data.execution,null);assert.equal(pending.data.catalog.id,null);
 });
 
-test('local Edge core -> candidate SQL: inspector assignment is readable but write, other assignment, tenant and missing Auth fail',async t=>{
- const f=await fixture(t),i=await f.inspection('visual');
+test('local Edge core -> candidate SQL: assigned inspector can execute but generic writes/reads, other assignment, tenant and missing Auth fail',async t=>{
+ const f=await fixture(t),i=await f.inspection('espessura');
  let r=await f.send('execution-assign',{inspectionId:i.id,professionalId:f.persons.inspector,expectedVersion:i.version,requestId:randomUUID()});assert.equal(r.status,200);
- r=await f.send('execution/'+i.id,undefined,{inspector:true});assert.equal(r.status,200);assert.equal(r.data.writeAllowed,false);assert.equal(r.data.canExecute,false);
+ r=await f.send('execution/'+i.id,undefined,{inspector:true});assert.equal(r.status,200);assert.equal(r.data.writeAllowed,true);assert.equal(r.data.canExecute,true);assert.equal(r.data.canAssign,false);
  const before=f.actions.length;
- r=await f.send('execution-start',{inspectionId:i.id,requestId:randomUUID()},{inspector:true});assert.equal(r.status,403);assert.equal(r.data.code,'write_denied');assert.equal(f.actions.slice(before).some(x=>x.action==='execution.start'),false);
+ r=await f.send('execution-start',{inspectionId:i.id,requestId:randomUUID()},{inspector:true});assert.equal(r.status,200);assert.equal(r.data.execution.createdBy,f.ids.inspector);assert.equal(f.actions.slice(before).some(x=>x.action==='execution.start'),true);
+ const genericBefore=f.actions.length;r=await f.send('assets',{tag:'FORBIDDEN GENERIC MUTATION'},{inspector:true});assert.equal(r.status,403);assert.equal(r.data.code,'write_denied');assert.equal(f.actions.slice(genericBefore).some(x=>x.action==='assets.create'),false);
+ r=await f.send('state',undefined,{inspector:true});assert.equal(r.status,403);
  const j=await f.inspection('visual');
  r=await f.send('execution/'+j.id,undefined,{inspector:true});assert.equal(r.status,403);assert.equal(r.data.code,'access_denied');
  r=await f.send('execution/'+i.id,undefined,{tenant:f.ids.tenantB});assert.equal(r.status,403);
  r=await f.send('execution/'+i.id,undefined,{anonymous:true});assert.equal(r.status,401);assert.equal(r.data.code,'auth_required');
- assert.equal((await f.db.query('select count(*)::int n from pi_gestao_private.inspection_executions')).rows[0].n,0);
+ assert.equal((await f.db.query('select count(*)::int n from pi_gestao_private.inspection_executions')).rows[0].n,1);
 });
 
 test('local Edge core -> candidate SQL: contract report URL isolates shared assets and rejects contradictory campaign/scope',async t=>{

@@ -19,6 +19,7 @@ test('schema-only bootstrap: fresh isolated database restores all application ta
  assert.equal((await db.query('select count(*)::int n from auth.users')).rows[0].n,0);
  assert.equal((await db.query('select count(*)::int n from pi_team_private.professionals')).rows[0].n,0);
  assert.equal((await db.query('select count(*)::int n from pi_gestao_private.inspection_catalogs')).rows[0].n,0);
+ assert.equal((await db.query('select count(*)::int n from pi_gestao_private.inspection_catalog_bindings')).rows[0].n,0);
  assert.equal((await db.query('select count(*)::int n from pi_gestao_private.inspection_executions')).rows[0].n,0);
  await db.exec('set role anon');
  await assert.rejects(db.query("select public.pi_gestao_api('10000000-0000-4000-8000-000000000001','execution.list','{}')"),{code:'42501'});

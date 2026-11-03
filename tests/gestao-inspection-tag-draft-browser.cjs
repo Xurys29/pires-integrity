@@ -18,7 +18,7 @@ async function runPrior(){
     await new Function("require","module","__filename","__dirname",source+"\nreturn main();")(createRequire(filename),{exports:{}},filename,__dirname);
     assert.equal(crypto.createHash("sha256").update(fs.readFileSync(filename)).digest("hex"),hashes[name]);
   }
-  fs.writeFileSync(path.join(output,"prior-source-check.json"),JSON.stringify({baseCommit,workingTreeUnderTest:true,unchangedOriginalSources:hashes,adaptation:"Only output paths, date and base metadata substituted in memory; product/test sources untouched."},null,2)+"\n");
+  fs.writeFileSync(path.join(output,"prior-source-check.json"),JSON.stringify({baseCommit,workingTreeUnderTest:true,stableHarnessSources:hashes,fixtureContractUpdated:true,adaptation:"Assigned-inspector fixture contract intentionally updated in source; only output paths, date and base metadata substituted in memory; sources stable during execution."},null,2)+"\n");
 }
 // Response headers arrive before refresh has applied state and rendered it.
 // Await the existing application handler before navigating between contracts.
@@ -44,11 +44,26 @@ function snapshot(f,contractId=ids.contract){
 }
 async function fixtureReports(f,options={}){
   const calls=[];let count=0;
-  await f.page.route(endpoint("reports/**"),request=>{
-    const resource=request.request().url().slice((API+prefix).length),match=/^reports\/contracts\/([a-f0-9-]{36})\/system\/([a-f0-9-]{36})$/.exec(resource);calls.push(resource);count++;
-    if(!match||match[2]!==ids.system)return request.fulfill({status:400,headers:cors,json:{error:"Strict synthetic scoped route only"}});
-    const value=snapshot(f,match[1]);options.mutate?.(value,count);return request.fulfill({status:200,headers:cors,json:value});
-  });return calls;
+  const receive=request=>{
+    const resource=request.request().url().slice((API+prefix).length),match=/^reports\/contracts\/([a-f0-9-]{36})\/system\/([a-f0-9-]{36})$/.exec(resource),assigned=/^execution\/([a-f0-9-]{36})\/report$/.exec(resource);calls.push(resource);count++;
+    let value;
+    if(assigned){
+      const inspection=f.state.inspection.find(row=>row.id===assigned[1]&&row.assigneeProfessionalId===ids.professional),execution=inspection&&f.executions.get(inspection.id);
+      if(!inspection||!execution)return request.fulfill({status:403,headers:cors,json:{error:"Inspeção não atribuída",code:"access_denied"}});
+      value=snapshot(f,inspection.contractId);value.inspectionScopeVersion=1;
+      value.assets=value.assets.filter(row=>row.id===inspection.assetId);value.contract.assetIds=value.contract.assetIds.filter(id=>id===inspection.assetId);
+      value.inspections=value.inspections.filter(row=>row.id===inspection.id);value.lvts=value.lvts.filter(row=>row.id===execution.id);
+      value.lvtItems=value.lvtItems.filter(row=>row.lvtId===execution.id&&row.inspectionId===inspection.id);const itemIds=new Set(value.lvtItems.map(row=>row.id));
+      for(const key of ['photos','findings','rtis'])value[key]=value[key].filter(row=>row.inspectionId===inspection.id&&row.executionId===execution.id&&itemIds.has(row.lvtItemId));
+      const allowed=new Set([value.contract.id,value.system.id,...value.assets.map(row=>row.id),...value.inspections.map(row=>row.id),...value.lvts.map(row=>row.id),...value.lvtItems.map(row=>row.id),...value.photos.map(row=>row.id),...value.findings.map(row=>row.id),...value.rtis.map(row=>row.id)]);
+      value.recordVersions=value.recordVersions.filter(row=>allowed.has(row.id));
+    }else{
+      if(!match||match[2]!==ids.system)return request.fulfill({status:400,headers:cors,json:{error:"Strict synthetic scoped route only"}});
+      value=snapshot(f,match[1]);
+    }
+    options.mutate?.(value,count);return request.fulfill({status:200,headers:cors,json:value});
+  };
+  await f.page.route(endpoint("reports/**"),receive);await f.page.route(endpoint("execution/*/report"),receive);return calls;
 }
 async function capturePdf(f){
   await f.page.evaluate(()=>{const real=window.PiresGestaoTagReport,Ctor=window.PiresPDF?.jsPDF||window.jspdf?.jsPDF||window.jsPDF;window.__tagCalls=[];window.__tagSaves=[];
@@ -84,7 +99,7 @@ test("T06","Atividade de espessura mantém documento separado e helper recusa co
   const snap=snapshot(f);snap.lvts.push(copy(ex));snap.recordVersions.push({id:ex.id,kind:"lvt",version:1});const result=await f.page.evaluate(async ({scope,detail,snapshot})=>{try{await window.PiresGestaoTagReport.freeze({scope,detail,snapshot});return {accepted:true};}catch(error){return {accepted:false,error:error.message};}},{scope:{ownerId:ids.owner,contractId:ids.contract,systemId:ids.system,assetId:ids.thicknessAsset,inspectionId:ids.thickness,executionId:ids.thicknessExecution},detail:{inspection:copy(f.state.inspection[1]),execution:copy(ex),catalog:{status:"unavailable",items:[]}},snapshot:snap});assert.equal(result.accepted,false);assert.match(result.error,/somente a execução visual explícita/);assert.equal(f.writes.length,0);return {...result,visualButtonCount:0,fixturePostCount:0};
 });
 test("T07","Leitor atribuído consulta rascunho salvo e gera conferência sem escrever",mobile,["Entrar como inspetor com write=false e execução sintética atribuída.","Conferir campos/Salvar/Enviar desabilitados e gerar somente conferência dos registros salvos.","Exigir apenas GETs; não amplia autorização nem salva respostas locais."],async f=>{
-  await openSaved(f);await fixtureReports(f);await capturePdf(f);assert.equal(await f.page.getByRole("button",{name:"Salvar rascunho",exact:true}).isDisabled(),true);assert.equal(await f.page.getByRole("button",{name:"Enviar para revisão",exact:true}).isDisabled(),true);const result=await generate(f);assert.equal(result.calls[0].metadata.canIssue,false);assert.equal(f.writes.length,0);return {role:"inspetor",writeAllowed:false,pdfDraft:true,fixturePostCount:0,limits:"GET authorization is simulated; this tests read-only UI behavior, not production grants."};
+  await openSaved(f);const reports=await fixtureReports(f);await capturePdf(f);assert.equal(await f.page.getByRole("button",{name:"Salvar rascunho",exact:true}).isDisabled(),true);assert.equal(await f.page.getByRole("button",{name:"Enviar para revisão",exact:true}).isDisabled(),true);const result=await generate(f);assert.equal(result.calls[0].metadata.canIssue,false);assert.equal(f.writes.length,0);assert.ok(reports.every(resource=>resource==="execution/"+ids.visual+"/report"));assert.equal(f.calls.some(call=>call.resource===prefix+"state"||call.resource.startsWith(prefix+"sources/")||call.resource.startsWith(prefix+"reports/")),false);return {role:"inspector",writeAllowed:false,pdfDraft:true,fixturePostCount:0,genericOwnerReads:0,limits:"GET authorization is simulated; this tests read-only UI behavior, not production grants."};
 },{role:"inspetor"});
 test("T08","Snapshot com execução/contrato divergente é rejeitado por IDs estritos",desktop,["Solicitar C1 para a execução selecionada e devolver contrato C2 no snapshot.","Exigir recusa antes de gerar PDF, sem tentar escolher outro registro por TAG."],async f=>{
   await openSaved(f);await fixtureReports(f,{mutate(value){value.contract.id=extra.contract2;}});await capturePdf(f);await f.page.getByRole("button",{name:"Conferir rascunho desta TAG",exact:true}).click();const result=await noPdfAfterError(f,/Identidades canônicas divergentes/);assert.equal(await f.page.evaluate(()=>window.__tagCalls.length),0);return {...result,pdfGeneratorCalls:0,selectedByTagFallback:false};

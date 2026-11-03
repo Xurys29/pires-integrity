@@ -136,7 +136,7 @@
     function showModules() {
       const ctx = context();
       if (!ctx.client && options.onSelectClient) {
-        heading("SEU ESPAÇO DE GESTÃO", "Qual cliente vamos acompanhar?", "Escolha a empresa para acessar seus módulos, sistemas e ativos.");
+        heading(ctx.assignedInspector ? "MINHA PROGRAMAÇÃO" : "SEU ESPAÇO DE GESTÃO", ctx.assignedInspector ? "Em qual cliente estão suas inspeções?" : "Qual cliente vamos acompanhar?", ctx.assignedInspector ? "Somente clientes com atividades atribuídas e autorizadas pelo servidor." : "Escolha a empresa para acessar seus módulos, sistemas e ativos.");
         const search = el("input"); search.type = "search"; search.placeholder = "Buscar cliente"; search.setAttribute("aria-label", "Buscar cliente"); search.className = "client-search";
         const grid = el("div", undefined, "client-grid"), empty = el("p", "Nenhum cliente encontrado.", "empty-state");
         container.append(search, grid, empty);
@@ -147,7 +147,7 @@
           for (const client of clients) {
             const card = el("button", undefined, "client-card"); card.type = "button";
             const mark = el("span", client.name.slice(0, 2).toUpperCase(), "client-monogram"); mark.setAttribute("aria-hidden", "true");
-            card.append(mark, el("span", "EMPRESA CLIENTE", "eyebrow"), el("strong", client.displayName || client.name), el("span", "Ver módulos e ativos →", "card-link"));
+            card.append(mark, el("span", "EMPRESA CLIENTE", "eyebrow"), el("strong", client.displayName || client.name), el("span", ctx.assignedInspector ? "Ver minhas inspeções →" : "Ver módulos e ativos →", "card-link"));
             card.onclick = () => options.onSelectClient(client.id); grid.append(card);
           }
         };
@@ -700,9 +700,35 @@
       notice(container, "Nenhuma campanha ou resultado foi preenchido nesta tela. A estrutura está disponível para avaliação do fluxo.");
       unavailable(container, "Criar campanha ou emitir relatório");
     }
+    function renderAssignedInspector() {
+      const ctx = context(), key = [ctx.tenantId || "_", ctx.client?.id || "_", "assigned"].join("/");
+      if (key !== contextKey) { contextKey = key; inspections?.invalidate(); }
+      const requested = parseHash(root.location.hash), inspection = records("inspection").find(record => record.id === requested?.itemId),
+        permitted = requested?.clientId === (ctx.client?.id || "_") && requested.module === "integridade" &&
+          (requested.view === "minhas" || requested.view === "execucao" && inspection && (!requested.contractId || requested.contractId === inspection.contractId));
+      if (!permitted) root.history.replaceState(null, "", routeHash(ctx.client?.id, "integridade", "minhas", "_"));
+      current = parseHash(root.location.hash);
+      container.classList.remove("project-presentation");
+      container.dataset.client = ctx.client?.id || ""; container.dataset.module = "integridade"; container.dataset.view = ctx.client ? current.view : "minhas";
+      container.dataset.accessMode = "assigned_inspector";
+      container.replaceChildren(); hideLegacy(); breadcrumb.replaceChildren();
+      breadcrumb.append(el("span", "Minha programação"));
+      if (ctx.client) {
+        if (options.onSelectClient) { const clients = el("button", "Clientes com minhas atividades"); clients.type = "button"; clients.onclick = () => options.onSelectClient(""); breadcrumb.append(el("span", "/"), clients); }
+        breadcrumb.append(el("span", "/ " + ctx.client.name));
+      }
+      back.hidden = !ctx.client || current.view === "minhas";
+      back.onclick = () => navigate("integridade", "minhas", "_");
+      if (!ctx.client) showModules();
+      else if (!inspections?.enabled()) notice(container, "A área restrita de inspeções não foi confirmada pelo backend. Atualize o acesso antes de continuar.");
+      else inspections.render(container, current);
+      if (previousRoute !== root.location.hash) { previousRoute = root.location.hash; root.scrollTo?.(0, 0); container.focus?.({ preventScroll: true }); }
+    }
     function render() {
       const ctx = context();
       if (!ctx.authenticated) { container.replaceChildren(); breadcrumb.replaceChildren(); hideLegacy(); return; }
+      if (ctx.assignedInspector) { renderAssignedInspector(); return; }
+      delete container.dataset.accessMode;
       const key = [ctx.tenantId || "local", ctx.client?.id || "_"].join("/");
       if (key !== contextKey) {
         contextKey = key;

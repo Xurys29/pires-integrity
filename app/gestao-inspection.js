@@ -100,7 +100,7 @@
         button(box, summary.action, () => go("execucao", inspection.id, inspection.contractId || route.contractId), "inspection-primary");
         assignment(box, inspection, access, reload);
       } else note(box, "A gestão deve planejar a atividade para habilitar a execução.");
-      button(box, "Book e histórico", () => go("book", asset.id, route.contractId), "secondary inspection-book");
+      if (!ctx().assignedInspector) button(box, "Book e histórico", () => go("book", asset.id, route.contractId), "secondary inspection-book");
       parent.append(box);
     }
     function list(parent, route, mine = false, assetId) {
@@ -108,13 +108,13 @@
       host.append(el("h1", mine ? "Minhas inspeções" : assetId ? "Inspeções desta TAG" : "TAGs e atividades de inspeção"));
       const navigation = el("nav", undefined, "inspection-toolbar");
       if (!mine) button(navigation, "Minhas inspeções", () => go("minhas", "_", route.contractId));
-      if (mine) button(navigation, "Sistemas e TAGs", () => go("sistemas", "_", route.contractId), "secondary");
+      if (mine && !ctx().assignedInspector) button(navigation, "Sistemas e TAGs", () => go("sistemas", "_", route.contractId), "secondary");
       host.append(navigation);
       load(host, route, (access) => {
         if (mine && !access.professionalId) { note(host, "Sua conta ainda não está vinculada a um profissional do corpo técnico. A gestão deve conferir o cadastro existente."); return; }
         const search = input(host, "inspectionSearch", "Buscar TAG ou sistema", "search"), kind = input(host, "inspectionType", "Tipo de inspeção", "select");
         choice(kind, "", "Todos os tipos"); choice(kind, "visual", "Visual / LVT"); choice(kind, "espessura", "Espessura");
-        const queue = input(host, "inspectionQueue", "Fila de acompanhamento", "select"); choice(queue, "", "Todas as situações"); choice(queue, "technical", "Pendências técnicas"); choice(queue, "review", "Enviadas para revisão"); choice(queue, "unassigned", "Não atribuídas");
+        const queue = input(host, "inspectionQueue", "Fila de acompanhamento", "select"); choice(queue, "", "Todas as situações"); choice(queue, "technical", "Pendências técnicas"); choice(queue, "review", "Enviadas para revisão"); if (!ctx().assignedInspector) choice(queue, "unassigned", "Não atribuídas");
         const grid = el("div", undefined, "inspection-grid"), count = note(host, ""), pager = el("nav", undefined, "inspection-toolbar"); let page = 0;
         pager.setAttribute("aria-label", "Páginas de inspeções");
         const previous = button(pager, "Página anterior", () => { page--; fill(); }, "secondary"), pageLabel = el("span"), next = button(pager, "Próxima página", () => { page++; fill(); }, "secondary"); pager.insertBefore(pageLabel, next);
@@ -147,6 +147,34 @@
       const locator = source?.locator || {};
       return [source?.fileName, locator.sheet && "Aba " + locator.sheet, locator.row && "Linha " + locator.row, locator.page && "Página " + locator.page, locator.section].filter(Boolean).join(" · ");
     }
+    function catalogueSelection(parent, detail) {
+      if (!detail.catalogBinding && !detail.canSelectCatalog) return;
+      const binding = detail.catalogBinding || {}, panel = section(parent, "Catálogo aplicável à atividade", "inspection-catalogue-binding");
+      if (binding.status === "pinned") {
+        pairs(panel, [["Versão selecionada", binding.versionLabel], ["Procedimento / referência", binding.procedureReference], ["Vínculo", "Versão preservada para esta inspeção"]]);
+        return;
+      }
+      note(panel, binding.status === "legacy_unpinned" ? "Este rascunho legado ainda não tem versão aplicável vinculada. A gestão deve conferir o histórico; nenhum catálogo será escolhido automaticamente." : "A gestão precisa selecionar explicitamente a versão aplicável antes de iniciar. O catálogo mais recente não é escolhido automaticamente.");
+      if (!detail.canSelectCatalog) return;
+      const choices = Array.isArray(detail.catalogChoices) ? detail.catalogChoices : [], form = el("form", undefined, "inspection-assignment"); form.dataset.operation = "execution-catalog-select";
+      const select = input(form, "catalogId", "Versão do catálogo conferido", "select"); choice(select, "", "Selecione a versão aplicável");
+      for (const entry of choices) choice(select, entry.id, [entry.sourceFileName, entry.versionLabel, entry.procedureReference].filter(Boolean).join(" · ") || entry.id);
+      const submit = el("button", "Vincular catálogo à atividade"), feedback = note(form, "", "inspection-feedback"); submit.type = "submit"; form.append(submit); feedback.setAttribute("role", "status");
+      if (!choices.length) { submit.disabled = true; note(panel, "Nenhuma versão aplicável conferida está disponível. Não será usado catálogo sintético ou presumido."); }
+      const key = contextKey();
+      form.onsubmit = async event => {
+        event.preventDefault(); if (contextKey() !== key) return;
+        const selected = choices.find(entry => entry.id === select.value);
+        if (!selected || typeof selected.contentHash !== "string" || !selected.contentHash) { feedback.textContent = "Selecione uma versão conferida do catálogo."; return; }
+        submit.disabled = true; feedback.textContent = "Vinculando a versão selecionada…";
+        try {
+          await write("execution-catalog-select", { inspectionId: detail.inspection.id, catalogId: selected.id, expectedCatalogHash: selected.contentHash, expectedVersion: detail.inspection.version });
+          if (contextKey() === key) await options.onInspectionRefresh?.();
+        } catch (error) { feedback.textContent = error.message; }
+        finally { if (form.isConnected) submit.disabled = !choices.length; }
+      };
+      panel.append(form);
+    }
     function execution(parent, route) {
       const host = el("div", undefined, "inspection-workspace"); parent.append(host);
       load(host, route, (detail, token, key) => drawExecution(host, route, detail, token, key), "execution/" + route.itemId);
@@ -161,7 +189,7 @@
       host.append(el("span", typeLabel(inspection.type), "inspection-eyebrow"), el("h1", asset?.tag || "Inspeção"));
       const navigation = el("nav", undefined, "inspection-toolbar");
       button(navigation, "Minhas inspeções", () => go("minhas", "_", inspection.contractId || route.contractId), "secondary");
-      button(navigation, "Gestão de RTI", () => options.onInspectionNavigate?.("rtis", "fila", "_", ""), "secondary");
+      if (!ctx().assignedInspector) button(navigation, "Gestão de RTI", () => options.onInspectionNavigate?.("rtis", "fila", "_", ""), "secondary");
       if (execution && inspection.type === "visual" && typeof options.onInspectionReport === "function") {
         const feedback = el("p", undefined, "inspection-feedback"); feedback.setAttribute("role", "status");
         const report = button(navigation, "Conferir rascunho desta TAG", async () => {
@@ -171,21 +199,23 @@
           finally { if (report.isConnected) report.disabled = false; }
         }, "secondary"); navigation.append(feedback);
       }
-      if (asset) button(navigation, "Book e histórico", () => go("book", asset.id, inspection.contractId || route.contractId), "secondary"); host.append(navigation);
+      if (asset && !ctx().assignedInspector) button(navigation, "Book e histórico", () => go("book", asset.id, inspection.contractId || route.contractId), "secondary"); host.append(navigation);
       const identity = section(host, "1. Atividade e responsável");
       pairs(identity, [["Sistema", records("system").find((s) => s.id === asset?.systemId)?.name], ["Tipo da atividade", typeLabel(inspection.type)], ["Data planejada", inspection.plannedDate || inspection.planned], ["Inspetor responsável", inspection.assigneeName || "Não atribuído"], ["Situação", describe({ ...inspection, executionStatus: execution?.status }).status]]);
       assignment(identity, inspection, detail, () => options.onInspectionRefresh?.());
       if (!detail.canExecute) note(host, detail.executionBlockReason || (detail.writeAllowed === false ? "Seu acesso atual permite consulta. Salvar e enviar a inspeção exige autorização operacional da organização." : "A execução está disponível somente ao profissional atribuído à atividade."), "inspection-access-note");
+      catalogueSelection(host, detail);
       if (execution?.technicalReviewRequired) note(host, "Gestão técnica pendente: os itens sinalizados serão conferidos sem presumir uma condição ou recomendação.", "inspection-technical-pending");
       if (outcomes.has(inspection.id)) note(host, outcomes.get(inspection.id), "inspection-feedback").setAttribute("role", "status");
       if (!execution) {
+        const cataloguePending = inspection.type === "visual" && detail.catalogBinding && detail.catalogBinding.status !== "pinned";
         if (inspection.type === "visual" && (catalog.status !== "verified" || !catalog.items?.length)) note(host, catalog.reason || "O catálogo de LVT com fontes conferidas ainda não está disponível.", "inspection-catalog-pending");
         const start = button(host, "Iniciar inspeção", async () => {
           start.disabled = true;
           try { await write("execution-start", { inspectionId: inspection.id, expectedVersion: inspection.version }); if (contextKey() === key) { outcomes.set(inspection.id, "Rascunho criado. Ao continuar, este mesmo registro será aberto."); await options.onInspectionRefresh?.(); } }
-          catch (error) { fail(host, error); } finally { if (start.isConnected) start.disabled = !detail.canExecute; }
+          catch (error) { fail(host, error); } finally { if (start.isConnected) start.disabled = !detail.canExecute || cataloguePending; }
         }, "inspection-primary");
-        start.disabled = !detail.canExecute; return;
+        start.disabled = !detail.canExecute || cataloguePending; return;
       }
       const form = el("form", undefined, "inspection-execution-form"); form.dataset.operation = "inspection-execution";
       const fields = section(form, inspection.type === "espessura" ? "2. Instrumento e leituras" : "2. Checklist por item"), date = input(fields, "observedOn", "Data da execução", "date", execution.observedOn);
@@ -265,7 +295,7 @@
           refreshOutcome();
         };
         condition.onchange = update; recommendation.onchange = update; update();
-        const ownPhoto = (p) => p.lvtItemId === shell?.lvtItemId && p.assetId === detail.inspection.assetId && p.inspectionId === detail.inspection.id && p.lvtId === execution.id && p.contractId === detail.inspection.contractId && p.systemId === detail.inspection.systemId && p.campaignId === detail.inspection.campaignId && p.module === detail.inspection.module,
+        const ownPhoto = (p) => p && p.lvtItemId === shell?.lvtItemId && p.assetId === detail.inspection.assetId && p.inspectionId === detail.inspection.id && p.lvtId === execution.id && p.contractId === detail.inspection.contractId && p.systemId === detail.inspection.systemId && p.campaignId === detail.inspection.campaignId && p.module === detail.inspection.module,
           photoRecords = new Map(records("photo").filter(ownPhoto).map((p) => [p.id, p])),
           photoIds = new Set([...(prior.photoIds || []), ...records("photo").filter((p) => p.lvtItemId === shell?.lvtItemId).map((p) => p.id)]), photoCount = note(box, photoIds.size + " foto(s) vinculada(s) a este item");
         if (typeof options.onPhoto === "function") for (const photo of records("photo").filter((p) => p.lvtItemId === shell?.lvtItemId)) {
@@ -281,9 +311,17 @@
             if (!files.files?.length) throw Error("Selecione ao menos uma fotografia deste item.");
             for (const file of files.files) {
               if (!/\.(jpe?g|png)$/i.test(file.name) || file.size < 1 || file.size > 8 * 1024 * 1024) throw Error("Selecione fotografias JPEG/PNG de até 8 MiB cada.");
-              if (!photoUploads.has(file)) photoUploads.set(file, await options.onInspectionPhoto(file));
+              let uploads = photoUploads.get(file);
+              if (!uploads) { uploads = new Map(); photoUploads.set(file, uploads); }
+              const uploadKey = guard.key + "/" + execution.id + "/" + shell.lvtItemId;
+              if (!uploads.has(uploadKey)) uploads.set(uploadKey, { requestId: root.crypto.randomUUID(), result: null });
+              const operation = uploads.get(uploadKey);
+              if (!operation.result) operation.result = await options.onInspectionPhoto(file, { inspectionId: detail.inspection.id, lvtItemId: shell.lvtItemId, executionVersion: execution.version, requestId: operation.requestId });
               if (contextKey() !== guard.key || guard.token !== generation) return;
-              const source = photoUploads.get(file), saved = await write("photos", { assetId: detail.inspection.assetId, lvtItemId: shell.lvtItemId, sourceId: source.id, locator: { section: "Item " + item.itemKey }, caption: "Item " + item.itemKey });
+              const result = operation.result, scoped = ctx().capabilities?.inspectorWorkspaceVersion === 1;
+              if (scoped && (result?.linked !== true || result.inspectionId !== detail.inspection.id || result.executionId !== execution.id || result.requestId !== operation.requestId || !ownPhoto(result.photo))) throw Error("A API não confirmou a fotografia no item e na execução atuais.");
+              if (!scoped && ctx().assignedInspector) throw Error("O backend não confirmou o envio restrito de fotografias.");
+              const saved = scoped ? result.photo : await write("photos", { assetId: detail.inspection.assetId, lvtItemId: shell.lvtItemId, sourceId: result.id, locator: { section: "Item " + item.itemKey }, caption: "Item " + item.itemKey });
               photoIds.add(saved.id);
               if (ownPhoto(saved)) photoRecords.set(saved.id, saved);
             }

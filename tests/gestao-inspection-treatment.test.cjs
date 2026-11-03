@@ -4,6 +4,7 @@
 const {test}=require('node:test'),assert=require('node:assert/strict');
 const fs=require('node:fs'),path=require('node:path'),{randomUUID,createHash}=require('node:crypto');
 const {setup}=require('./fixtures/gestao-postgres-fixture.cjs');
+const {catalogueMetadata,selectCatalogue}=require('./fixtures/gestao-explicit-catalogue.cjs');
 
 async function fixture(t,{metadata=true}={}){
  const f=await setup();t.after(()=>f.close());
@@ -20,13 +21,14 @@ async function fixture(t,{metadata=true}={}){
  f.contract=await f.rpc('contracts.create',{requestId:randomUUID(),name:'CONTRATO SINTÉTICO',source:'Fixture',modules:['integridade'],assetIds:[f.asset.id]});
  f.campaign=await f.rpc('campaigns.create',{requestId:randomUUID(),name:'PRÓXIMA CAMPANHA SINTÉTICA',source:'Fixture',contractId:f.contract.id,systemId:h.system.id,module:'integridade',assetIds:[f.asset.id],status:'rascunho'});
  const dates=(await f.db.query('select current_date::text today,(current_date-4)::text observed,(current_date+20)::text planned,(current_date+45)::text due')).rows[0];Object.assign(f,dates);
- f.start=async()=>{const i=await f.rpc('inspections.create',{requestId:randomUUID(),assetId:f.asset.id,contractId:f.contract.id,campaignId:f.campaign.id,module:'integridade',type:'visual',status:'planejada',source:'Fixture',plannedDate:f.planned});await f.rpc('execution.assign',{inspectionId:i.id,professionalId:f.professionalId,expectedVersion:i.version,requestId:randomUUID()});return f.rpc('execution.start',{inspectionId:i.id,requestId:randomUUID()});};
+ f.start=async()=>{const i=await f.rpc('inspections.create',{requestId:randomUUID(),assetId:f.asset.id,contractId:f.contract.id,campaignId:f.campaign.id,module:'integridade',type:'visual',status:'planejada',source:'Fixture',plannedDate:f.planned});await f.rpc('execution.assign',{inspectionId:i.id,professionalId:f.professionalId,expectedVersion:i.version,requestId:randomUUID()});await selectCatalogue(f,{ownerId:f.ownerId,inspectionId:i.id,catalogId:f.catalogId});return f.rpc('execution.start',{inspectionId:i.id,requestId:randomUUID()});};
  f.state=()=>f.rpc('state.get');
  f.original=async(format='image_jpeg')=>{const sha=createHash('sha256').update(randomUUID()).digest('hex'),ext=format==='image_jpeg'?'jpg':'pdf';return f.register(f.ids.tenantA,f.ids.adminA,{sha,name:'ORIGINAL SOMENTE FIXTURE.'+ext,size:32,objectKey:await f.putObject(f.ids.tenantA,sha,32,ext),workbook:{format,sheets:[],metadata:{extraction:'not_performed'}}});};
  const original=await f.original('document_pdf'),source={sourceId:original.id,fileHash:original.id,fileName:original.name,locator:{page:1}};f.source=source;f.catalogId=randomUUID();
  f.items=[{id:'synthetic-item',itemKey:'ITEM-SINTÉTICO',component:'COMPONENTE SOMENTE FIXTURE',conditions:[{id:'good',text:'CONDIÇÃO FAVORÁVEL SOMENTE FIXTURE',source,...(metadata?{supportsGoodCondition:true}:{})},{id:'other',text:'CONDIÇÃO COM TRATATIVA SOMENTE FIXTURE',source,...(metadata?{supportsGoodCondition:false}:{})}],recommendations:[{id:'treat',text:'TRATATIVA A EXCLUSIVAMENTE SINTÉTICA',conditionIds:['other'],source,...(metadata?{requiresTreatment:true}:{})},{id:'treat-b',text:'TRATATIVA B EXCLUSIVAMENTE SINTÉTICA',conditionIds:['other'],source,...(metadata?{requiresTreatment:true}:{})},{id:'none',text:'Sem recomendações.',conditionIds:['good'],source,...(metadata?{requiresTreatment:false}:{})}]}];
  f.setCatalogue=()=>f.db.query('update pi_gestao_private.inspection_catalogs set items=$1::jsonb where tenant_id=$2 and owner_id=$3 and id=$4',[JSON.stringify(f.items),f.ids.tenantA,f.ownerId,f.catalogId]);
  await f.db.query('insert into pi_gestao_private.inspection_catalogs(tenant_id,owner_id,id,source_id,source_locator,items,verified_by,verified_at) values($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7,now())',[f.ids.tenantA,f.ownerId,f.catalogId,original.id,JSON.stringify({page:1}),JSON.stringify(f.items),f.ids.adminA]);
+ await catalogueMetadata(f,{ownerId:f.ownerId,catalogId:f.catalogId,contractIds:[f.contract.id],assetIds:[f.asset.id]});
  f.photo=async d=>{const s=await f.original();return f.rpc('photos.create',{assetId:f.asset.id,lvtItemId:d.execution.items[0].lvtItemId,sourceId:s.id,locator:{section:randomUUID()},caption:'FOTO EXCLUSIVAMENTE SINTÉTICA'});};
  f.answer=(photoIds=[],extra={})=>({catalogItemId:'synthetic-item',itemKey:'ITEM-SINTÉTICO',conditionId:'good',recommendationId:null,notCovered:false,photoIds,...extra});
  f.payload=(d,answers,extra={})=>({inspectionId:d.inspection.id,expectedVersion:d.execution.version,requestId:randomUUID(),observedOn:f.observed,answers,...extra});
@@ -54,7 +56,7 @@ test('treatment: absence of recommendation never declares good, and missing/inco
  d=await f.save(d,[a]);assert.equal(d.execution.outcome,'pending');assert.equal(d.execution.answers[0].conditionSupportsGoodCondition,null);assert.equal((await f.state()).rti.length,0);
  await assert.rejects(f.save(d,[a],{outcome:'good_condition',coverage:f.coverage([p.id])}),{code:'22023'});
  f.items[0].conditions[0].supportsGoodCondition=false;await f.setCatalogue();await assert.rejects(f.save(d,[a],{outcome:'good_condition',coverage:f.coverage([p.id])}),{code:'22023'});
- f.items[0].conditions[0].supportsGoodCondition='true';await f.setCatalogue();await assert.rejects(f.rpc('execution.get',{inspectionId:d.inspection.id}),{code:'22023'});
+ f.items[0].conditions[0].supportsGoodCondition='true';await f.setCatalogue();const unchanged=await f.rpc('execution.get',{inspectionId:d.inspection.id});assert.equal(unchanged.catalog.items[0].conditions[0].supportsGoodCondition,undefined);assert.equal(unchanged.execution.id,d.execution.id);
 });
 
 test('treatment: explicit non-action statement preserves phrase/source and selected evidence without finding or RTI',async t=>{
@@ -94,7 +96,15 @@ test('treatment: explicit action needs actor-provided point label even in pendin
 test('treatment: unclassified legacy recommendation keeps its RTI and marks review/point pending; empty statements cannot silently become actions',async t=>{
  const f=await fixture(t,{metadata:false});let d=await f.start(),p=await f.photo(d),a=f.answer([p.id],{conditionId:'other',recommendationId:'treat'});d=await f.save(d,[a]);let rti=(await f.state()).rti[0];assert.equal(rti.requiresTreatment,true);assert.equal(rti.actionabilityStatus,'legacy_unclassified');assert.equal(rti.pointLinkStatus,'pending');assert.equal(rti.pointId,null);assert.equal(d.execution.technicalReviewRequired,true);assert.equal(d.points.length,0);
  await assert.rejects(f.save(d,[a],{outcome:'treatment_required'}),{code:'22023'});
- for(const text of ['-','–','—','0.0','Sem recomendação.','SEM  RECOMENDAÇÕES.','No recommendations','N/A']){f.items[0].recommendations[0].text=text;await f.setCatalogue();await assert.rejects(f.save(d,[a]),{code:'22023'});}
+ for(const text of ['-','–','—','0.0','Sem recomendação.','SEM  RECOMENDAÇÕES.','No recommendations','N/A']){
+  // Exercise the newly selected wording in its own explicit version. Editing
+  // the live row of the original pin must not change that existing execution.
+  f.items[0].recommendations[0].text=text;f.catalogId=randomUUID();
+  await f.db.query('insert into pi_gestao_private.inspection_catalogs(tenant_id,owner_id,id,source_id,source_locator,items,verified_by,verified_at) values($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7,now())',[f.ids.tenantA,f.ownerId,f.catalogId,f.source.sourceId,JSON.stringify({page:1}),JSON.stringify(f.items),f.ids.adminA]);
+  await catalogueMetadata(f,{ownerId:f.ownerId,catalogId:f.catalogId,contractIds:[f.contract.id],assetIds:[f.asset.id]});
+  const next=await f.start(),picture=await f.photo(next);
+  await assert.rejects(f.save(next,[f.answer([picture.id],{conditionId:'other',recommendationId:'treat'})]),{code:'22023'});
+ }
  assert.equal((await f.state()).rti.length,1);
 });
 
@@ -105,8 +115,8 @@ test('treatment: withdrawal preserves historical action/photos/manual due and sa
  await assert.rejects(f.save(d,[f.answer([q.id],{recommendationId:'none'})],{outcome:'good_condition',coverage:f.coverage([q.id])}),{code:'22023'});assert.equal((await f.state()).rti[0].status,'aberta');
 });
 
-test('treatment: submit rechecks current curated semantics, canonical photo coverage and point records instead of trusting the saved label',async t=>{
- const f=await fixture(t);let d=await f.start(),p=await f.photo(d);d=await f.save(d,[f.answer([p.id])],{outcome:'good_condition',coverage:f.coverage([p.id])});f.items[0].conditions[0].supportsGoodCondition=false;await f.setCatalogue();await assert.rejects(f.submit(d),{code:'22023'});assert.equal((await f.rpc('execution.get',{inspectionId:d.inspection.id})).execution.status,'rascunho');
+test('treatment: submit uses pinned semantics and rechecks canonical photo coverage and point records instead of live edits or saved labels',async t=>{
+ const f=await fixture(t);let d=await f.start(),p=await f.photo(d);d=await f.save(d,[f.answer([p.id])],{outcome:'good_condition',coverage:f.coverage([p.id])});f.items[0].conditions[0].supportsGoodCondition=false;await f.setCatalogue();assert.equal((await f.rpc('execution.get',{inspectionId:d.inspection.id})).catalog.items[0].conditions[0].supportsGoodCondition,true);d=await f.submit(d);assert.equal(d.execution.status,'em_revisao');
  f.items[0].conditions[0].supportsGoodCondition=true;await f.setCatalogue();await assert.rejects(f.rpc('execution.submit',{inspectionId:d.inspection.id,expectedVersion:d.execution.version,requestId:randomUUID(),outcome:'pending'}),{code:'22023'});
  const other=await f.start(),q=await f.photo(other);let x=await f.save(other,[f.answer([q.id],{conditionId:'other',recommendationId:'treat',pointLabel:'OUTRO PONTO SINTÉTICO'})],{outcome:'treatment_required'});await f.db.query("update pi_gestao_private.records set body=jsonb_set(body,'{assetId}',to_jsonb($1::text)) where id=$2",[randomUUID(),x.points[0].id]);await assert.rejects(f.submit(x),{code:'42501'});
 });
@@ -126,10 +136,10 @@ test('treatment: coverage description and point labels require actual JSON strin
  assert.equal((await f.state()).rti.length,0);assert.equal((await f.rpc('execution.get',{inspectionId:d.inspection.id})).points.length,0);
 });
 
-test('treatment: pending submit also rejects changed classification or broken RTI linkage until the same draft is saved again',async t=>{
+test('treatment: pinned classification survives live edits and pending submit rejects broken RTI linkage until the same draft is saved again',async t=>{
  const f=await fixture(t);let d=await f.start(),p=await f.photo(d);d=await f.save(d,[f.answer([p.id],{recommendationId:'none'})],{outcome:'pending'});
- f.items[0].recommendations.find(r=>r.id==='none').requiresTreatment=true;await f.setCatalogue();await assert.rejects(f.submit(d),{code:'22023'});assert.equal((await f.state()).rti.length,0);assert.equal((await f.rpc('execution.get',{inspectionId:d.inspection.id})).execution.status,'rascunho');
- f.items[0].recommendations.find(r=>r.id==='none').requiresTreatment=false;await f.setCatalogue();delete f.items[0].recommendations.find(r=>r.id==='none').requiresTreatment;await f.setCatalogue();await assert.rejects(f.submit(d),{code:'22023'});f.items[0].recommendations.find(r=>r.id==='none').requiresTreatment=false;await f.setCatalogue();
+ f.items[0].recommendations.find(r=>r.id==='none').requiresTreatment=true;await f.setCatalogue();assert.equal((await f.state()).rti.length,0);
+ delete f.items[0].recommendations.find(r=>r.id==='none').requiresTreatment;await f.setCatalogue();assert.equal((await f.rpc('execution.get',{inspectionId:d.inspection.id})).catalog.items[0].recommendations.find(r=>r.id==='none').requiresTreatment,false);assert.equal((await f.submit(d)).execution.status,'em_revisao');f.items[0].recommendations.find(r=>r.id==='none').requiresTreatment=false;await f.setCatalogue();
  const x0=await f.start(),q=await f.photo(x0),a=f.answer([q.id],{conditionId:'other',recommendationId:'treat',pointLabel:'PONTO EXCLUSIVO DO TESTE PENDENTE'});let x=await f.save(x0,[a],{outcome:'pending'}),rti=(await f.state()).rti.find(r=>r.inspectionId===x.inspection.id);
  await f.db.query("update pi_gestao_private.records set body=jsonb_set(body,'{photoIds}','[]'::jsonb) where id=$1",[rti.id]);await assert.rejects(f.submit(x),{code:'22023'});
  x=await f.save(x,[a],{outcome:'pending'});assert.equal((await f.state()).rti.find(r=>r.inspectionId===x.inspection.id).id,rti.id);assert.equal((await f.submit(x)).execution.status,'em_revisao');

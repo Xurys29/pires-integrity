@@ -146,7 +146,7 @@ scenario("M02","Inspetor somente consulta não altera rascunho existente",mobile
   const p=f.page;await navigate(p,"execucao",ids.visual);await ready(p,ids.visual,ids.visualExecution);
   assert.equal(await p.locator('[name="observedOn"]').isDisabled(),true);assert.equal(await first(p).locator('[name="conditionId"]').isDisabled(),true);assert.equal(await first(p).locator('input[type="file"]').isDisabled(),true);
   assert.equal(await saveButton(p).isDisabled(),true);assert.equal(await p.getByRole("button",{name:"Enviar para revisão",exact:true}).isDisabled(),true);assert.equal(await p.locator('form[data-operation="execution-assign"]').count(),0);
-  await p.locator('form[data-operation="inspection-execution"]').dispatchEvent("submit");assert.equal(f.writes.length,0);
+  await p.locator('form[data-operation="inspection-execution"]').dispatchEvent("submit");assert.equal(f.writes.length,0);assert.equal(f.calls.some(call=>call.resource===`companies/${ids.owner}/state`||call.resource.startsWith(`companies/${ids.owner}/sources/`)||call.resource.startsWith(`companies/${ids.owner}/reports/`)),false);
   const notice=await p.locator("#connectedWriteNotice").boundingBox(),toolbar=await p.locator(".client-toolbar").boundingBox();assert.ok(notice.y+notice.height<=toolbar.y+1);
   return {writes:0,fixtureRole:"inspector",writeAllowed:false,limit:"A permissão e a resposta HTTP são fixtures; RLS/RPC reais são verificados separadamente."};
 },{role:"inspector"});
@@ -155,7 +155,7 @@ scenario("M03","Minhas inspeções e deep link não expõem atividade não atrib
   "Alterar na fixture a atribuição da atividade visual para outro profissional.","Reabrir Minhas e conferir ausência da atividade visual.","Forçar deep link visual; conferir resposta 403, workspace oculto e nenhuma gravação."
 ],async f=>{
   const p=f.page;f.state.inspection.find(x=>x.id===ids.visual).assigneeProfessionalId=ids.otherProfessional;
-  await navigate(p,"ativos",ids.system);await p.locator('[name="inspectionSearch"]').waitFor();await navigate(p,"minhas");await queueReady(p,ids.thickness);
+  await navigate(p,"execucao",ids.thickness);await p.locator('.inspection-workspace[data-inspection-id="'+ids.thickness+'"]').waitFor();await navigate(p,"minhas");await queueReady(p,ids.thickness);
   assert.equal(await p.locator(`.inspection-card[data-inspection-id="${ids.visual}"]`).count(),0);
   const denied=p.waitForResponse(response=>response.url()===url("execution/"+ids.visual));await navigate(p,"execucao",ids.visual);assert.equal((await denied).status(),403);await p.locator("#workspace[hidden]").waitFor({state:"attached"});
   assert.equal(await p.locator(`[data-execution-id]`).count(),0);assert.equal(f.writes.length,0);

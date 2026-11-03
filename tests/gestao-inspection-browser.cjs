@@ -111,7 +111,7 @@ async function navigate(page,view,inspectionId="_") {
 }
 
 async function fixturePage(browser,base,options={}) {
-  const role = options.role || "admin", canWrite = role === "admin";
+  const role = options.role === "inspetor" ? "inspector" : options.role || "admin", canWrite = role === "admin", restricted = role === "inspector";
   const state = initialState(), executions = new Map(), receipts = new Map(), files = new Map();
   const calls = [], errors = [], unexpected = [], writes = [];
   let deniedInspection = options.deniedInspection || null, photoNumber = 40;
@@ -123,6 +123,26 @@ async function fixturePage(browser,base,options={}) {
     {id:ids.otherProfessional,name:"OUTRO PROFISSIONAL FIXTURE EXISTENTE",registrationState:"active",accessLinked:true}
   ];
   const inspection = inspectionId => state.inspection.find(record=>record.id===inspectionId);
+  const assigned = record => record && record.assigneeProfessionalId === ids.professional && record.id !== deniedInspection;
+  const scopedState = inspectionId => {
+    const selected=state.inspection.filter(record=>assigned(record)&&(!inspectionId||record.id===inspectionId)),
+      inspectionIds=new Set(selected.map(record=>record.id)),assetIds=new Set(selected.map(record=>record.assetId)),
+      contractIds=new Set(selected.map(record=>record.contractId)),campaignIds=new Set(selected.map(record=>record.campaignId)),
+      executionIds=new Set(selected.map(record=>executions.get(record.id)?.id).filter(Boolean)),
+      assets=state.asset.filter(record=>assetIds.has(record.id)),systemIds=new Set(assets.map(record=>record.systemId)),
+      systems=state.system.filter(record=>systemIds.has(record.id)),unitIds=new Set(systems.map(record=>record.unitId)),
+      items=state.lvtItem.filter(record=>executionIds.has(record.lvtId||record.executionId)),itemIds=new Set(items.map(record=>record.id)),
+      belongs=record=>(!record.inspectionId||inspectionIds.has(record.inspectionId))&&(!record.executionId||executionIds.has(record.executionId))&&
+        (!record.lvtId||executionIds.has(record.lvtId))&&(!record.lvtItemId||itemIds.has(record.lvtItemId))&&
+        (!!record.inspectionId&&inspectionIds.has(record.inspectionId)||!!record.executionId&&executionIds.has(record.executionId)||!!record.lvtId&&executionIds.has(record.lvtId)||!!record.lvtItemId&&itemIds.has(record.lvtItemId));
+    return {company:clone(state.company),inspectionScopeVersion:1,scopeMode:"assigned_inspector",
+      unit:clone(state.unit.filter(record=>unitIds.has(record.id))),system:clone(systems),asset:clone(assets),
+      contract:clone(state.contract.filter(record=>contractIds.has(record.id)).map(record=>({...record,assetIds:(record.assetIds||[]).filter(id=>assetIds.has(id))}))),
+      campaign:clone(state.campaign.filter(record=>campaignIds.has(record.id)).map(record=>({...record,assetIds:(record.assetIds||[]).filter(id=>assetIds.has(id))}))),
+      inspection:clone(selected),lvt:clone(state.lvt.filter(record=>executionIds.has(record.id))),lvtItem:clone(items),
+      photo:clone(state.photo.filter(belongs)),finding:clone(state.finding.filter(belongs)),rti:clone(state.rti.filter(belongs)),document:clone(state.document.filter(belongs)),
+      revision:[],classification:[],deadline:[],delivery:[],relation:[],relations:[],findings:[]};
+  };
   const progress = record => {
     const execution = executions.get(record.id), answered = execution?.answers?.filter(answer=>answer.conditionId||answer.notCovered).length||0;
     return {answered,total:record.type==="visual"?catalog.items.length:0};
@@ -158,24 +178,34 @@ async function fixturePage(browser,base,options={}) {
     calls.push({resource,method});
     const json=(value,status=200)=>route.fulfill({status,headers:cors,json:value});
     const ownerPrefix=`companies/${ids.owner}/`;
-    if(resource==="status")return json({user_id:ids.user,actor:"inspection@fixture.invalid",mode:"supabase_integrado",
+    if(resource==="status")return json({user_id:ids.user,actor:"inspection@fixture.invalid",role,accessMode:restricted?"assigned_inspector":"management",mode:"supabase_integrado",
       capabilities:{write:canWrite,operations:true,photoOriginals:true,documentOriginals:true,
-        workflowVersion:2,inspectionExecutionVersion:1,xlsx:true,pdf:false,xls:false}});
+        ...(restricted?{inspectorWorkspaceVersion:1,assignedExecutionWrite:false}:{}),workflowVersion:2,inspectionExecutionVersion:1,xlsx:true,pdf:false,xls:false}});
     if(resource==="tenants")return json([{id:ids.tenant,name:"ORGANIZAÇÃO FIXTURE"}]);
-    if(resource==="companies")return json([state.company]);
+    if(resource==="companies")return json(!restricted||state.inspection.some(assigned)?[state.company]:[]);
     assert.equal(request.headers()["x-pires-tenant"],ids.tenant);
-    if(resource===ownerPrefix+"state")return json(clone(state));
+    if(resource===ownerPrefix+"state")return restricted?json({error:"Consulta geral não autorizada ao inspetor",code:"scoped_read_required"},403):json(clone(state));
+    if(resource===ownerPrefix+"execution-context")return json(scopedState());
     if(resource===ownerPrefix+"execution")return json({actorUserId:ids.user,
       professionalId:ids.professional,canAssign:canWrite,writeAllowed:canWrite,professionals:canWrite?professionals:[],
-      inspections:state.inspection.filter(record=>canWrite||record.assigneeProfessionalId===ids.professional)
+      inspections:state.inspection.filter(record=>canWrite||assigned(record))
         .map(listedInspection)});
     if(resource.startsWith(ownerPrefix+"execution/")) {
-      const inspectionId=resource.split("/").at(-1),record=inspection(inspectionId);
+      const tail=resource.slice((ownerPrefix+"execution/").length).split("/"),inspectionId=tail[0],record=inspection(inspectionId);
       if(!record||inspectionId===deniedInspection||!canWrite&&record.assigneeProfessionalId!==ids.professional)
         return json({error:"Inspeção não atribuída a este profissional",code:"access_denied"},403);
+      if(tail[1]==="context")return json(scopedState(inspectionId));
+      if(tail[1]==="sources"){
+        const sourceId=tail[2],own=scopedState(inspectionId),allowed=own.photo.some(photo=>photo.source?.sourceId===sourceId),original=files.get(sourceId);
+        if(!allowed)return json({error:"Original fora da atividade atribuída",code:"access_denied"},403);
+        if(!original)return json({error:"Fonte sintética não encontrada"},404);
+        return route.fulfill({status:200,headers:{...cors,"Content-Type":"image/png","Content-Disposition":"attachment; filename=FOTO-SOMENTE-FIXTURE.png"},body:original});
+      }
+      if(tail.length!==1)return json({error:"Rota restrita não definida nesta fixture",code:"access_denied"},403);
       return json(detail(inspectionId));
     }
     if(method==="GET"&&resource.startsWith(ownerPrefix+"sources/")) {
+      if(restricted)return json({error:"Anexo exige atividade atribuída",code:"scoped_read_required"},403);
       const original=files.get(resource.split("/").at(-1));
       if(!original)return json({error:"Fonte sintética não encontrada"},404);
       return route.fulfill({status:200,headers:{...cors,"Content-Type":"image/png","Content-Disposition":"attachment; filename=FOTO-SOMENTE-FIXTURE.png"},body:original});
@@ -186,6 +216,7 @@ async function fixturePage(browser,base,options={}) {
       files.set(sha,bytes);writes.push({operation:"sources/photo"});
       return json({id:sha,sha,name:"FOTO-SOMENTE-FIXTURE.png",format:"photo_png"});
     }
+    if(restricted&&method==="GET")return json({error:"Consulta exige programação própria",code:"scoped_read_required"},403);
     if(method!=="POST") {unexpected.push(resource);return json({error:"Rota sintética inesperada"},404);}
     const operation=resource.replace(ownerPrefix,""),body=request.postDataJSON();
     writes.push({operation,body:clone(body)});
@@ -439,6 +470,7 @@ async function main() {
     const accessNotice=await readonly.page.locator("#connectedWriteNotice").boundingBox(),clientToolbar=await readonly.page.locator(".client-toolbar").boundingBox();
     assert.ok(accessNotice.y+accessNotice.height<=clientToolbar.y+1,"Aviso de permissão não pode sobrepor o seletor de cliente no celular");
     assert.equal(readonly.writes.length,0);
+    assert.equal(readonly.calls.some(call=>call.resource===`companies/${ids.owner}/state`||call.resource.startsWith(`companies/${ids.owner}/sources/`)||call.resource.startsWith(`companies/${ids.owner}/reports/`)),false);
     await readonly.page.screenshot({path:path.join(output,"inspetor-consulta-mobile.png"),fullPage:true});
     record("inspetor atribuído com permissão atual de consulta vê atividades, mas não salva nem recebe autorização inventada");
     readonly.state.inspection.find(value=>value.id===ids.visual).assigneeProfessionalId=ids.otherProfessional;

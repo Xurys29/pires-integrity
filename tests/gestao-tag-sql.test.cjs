@@ -4,6 +4,7 @@
 const {test}=require('node:test'),assert=require('node:assert/strict');
 const fs=require('node:fs'),path=require('node:path'),{randomUUID,createHash}=require('node:crypto');
 const {jsPDF}=require('jspdf'),{setup}=require('./fixtures/gestao-postgres-fixture.cjs');
+const {catalogueMetadata,selectCatalogue}=require('./fixtures/gestao-explicit-catalogue.cjs');
 const Report=require('../app/gestao-tag-report.js');
 const imageBytes=Uint8Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=','base64'));
 
@@ -40,9 +41,23 @@ async function fixture(t){
  f.catalogId=randomUUID();
  f.items=[{id:'catalog-item-tag-sql',itemKey:'1.1-FIXTURE',component:'COMPONENTE EXCLUSIVO FIXTURE TAG-SQL',conditions:[{id:'condition-tag-sql',text:'CONDIÇÃO EXCLUSIVA FIXTURE TAG-SQL',source:f.source}],recommendations:[{id:'recommendation-tag-sql',text:'RECOMENDAÇÃO EXCLUSIVA FIXTURE TAG-SQL',conditionIds:['condition-tag-sql'],source:f.source}]}];
  await f.db.query('insert into pi_gestao_private.inspection_catalogs(tenant_id,owner_id,id,source_id,source_locator,items,verified_by,verified_at) values($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7,now())',[f.ids.tenantA,f.ownerId,f.catalogId,f.catalogOriginal.id,JSON.stringify({page:1}),JSON.stringify(f.items),f.ids.adminA]);
+ await catalogueMetadata(f,{ownerId:f.ownerId,catalogId:f.catalogId,contractIds:[f.c1.contract.id],assetIds:[f.asset.id]});
+ f.cataloguesByContract=new Map([[f.c1.contract.id,f.catalogId]]);
  f.start=async({contract,campaign}=f.c1,type='visual')=>{
   const inspection=await f.exec('inspections.create',{requestId:randomUUID(),assetId:f.asset.id,contractId:contract.id,campaignId:campaign.id,module:'integridade',type,status:'planejada',source:'Planejamento exclusivamente sintético'});
   await f.exec('execution.assign',{inspectionId:inspection.id,professionalId:f.professionalId,expectedVersion:inspection.version,requestId:randomUUID()});
+  if(type==='visual'){
+   let catalogId=f.cataloguesByContract.get(contract.id);
+   if(!catalogId){
+    // Another contract has an explicit separate synthetic catalogue version;
+    // never rewrite the applicability of a version already pinned under C1.
+    catalogId=randomUUID();
+    await f.db.query('insert into pi_gestao_private.inspection_catalogs(tenant_id,owner_id,id,source_id,source_locator,items,verified_by,verified_at) values($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7,now())',[f.ids.tenantA,f.ownerId,catalogId,f.catalogOriginal.id,JSON.stringify({page:1}),JSON.stringify(f.items),f.ids.adminA]);
+    await catalogueMetadata(f,{ownerId:f.ownerId,catalogId,contractIds:[contract.id],assetIds:[f.asset.id]});
+    f.cataloguesByContract.set(contract.id,catalogId);
+   }
+   await selectCatalogue(f,{ownerId:f.ownerId,inspectionId:inspection.id,catalogId});
+  }
   return f.exec('execution.start',{inspectionId:inspection.id,requestId:randomUUID()});
  };
  f.save=(detail,answers,observedOn=f.observed)=>f.exec('execution.save',{inspectionId:detail.inspection.id,expectedVersion:detail.execution.version,requestId:randomUUID(),observedOn,answers});

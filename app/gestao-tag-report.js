@@ -9,7 +9,7 @@
   const scopeKeys = ["ownerId", "contractId", "systemId", "assetId", "inspectionId", "executionId"];
   const outcomes = new Set(["pending", "good_condition", "treatment_required", "technical_review"]);
   const own = (value, key) => Object.hasOwn(value, key);
-  function canonical(value, ancestors = new Set(), budget = { remaining: 5 * 1024 * 1024 }) {
+  function canonical(value, ancestors = new Set(), budget = { remaining: 5 * 1024 * 1024 }, exact = false) {
     const spend = (length) => { budget.remaining -= length; if (budget.remaining < 0) throw Error("Recorte excede o limite de conferência."); };
     const take = (text) => { spend(text.length); return text; };
     if (typeof value === "string" && value.length > budget.remaining) throw Error("Recorte excede o limite de conferência.");
@@ -19,18 +19,20 @@
     const array = Array.isArray(value), proto = Object.getPrototypeOf(value), descriptors = Object.getOwnPropertyDescriptors(value);
     if (!array && proto !== Object.prototype && proto !== null || Reflect.ownKeys(descriptors).some((key) => !("value" in descriptors[key]))) throw Error("Objeto de conferência inválido.");
     ancestors.add(value);
-    const keys = array ? null : Object.keys(descriptors).sort().filter((key) => key !== "generatedAt" && descriptors[key].value !== undefined);
+    const keys = array ? null : Object.keys(descriptors).sort().filter((key) => (exact || key !== "generatedAt") && descriptors[key].value !== undefined);
     spend(2 + Math.max(0, (array ? value.length : keys.length) - 1));
-    const result = array ? "[" + Array.from({ length: value.length }, (_, i) => descriptors[i]?.value === undefined ? take("null") : canonical(descriptors[i].value, ancestors, budget)).join(",") + "]"
-      : "{" + keys.map((key) => take(JSON.stringify(key) + ":") + canonical(descriptors[key].value, ancestors, budget)).join(",") + "}";
+    const result = array ? "[" + Array.from({ length: value.length }, (_, i) => descriptors[i]?.value === undefined ? take("null") : canonical(descriptors[i].value, ancestors, budget, exact)).join(",") + "]"
+      : "{" + keys.map((key) => take(JSON.stringify(key) + ":") + canonical(descriptors[key].value, ancestors, budget, exact)).join(",") + "}";
     ancestors.delete(value); return result;
   }
   const clone = (value) => JSON.parse(canonical(value));
+  const exactJSON = (value) => canonical(value, new Set(), { remaining: 5 * 1024 * 1024 }, true), cloneExact = (value) => JSON.parse(exactJSON(value));
   function deepFreeze(value) { if (value && typeof value === "object") { Object.values(value).forEach(deepFreeze); Object.freeze(value); } return value; }
   async function hash(value) {
     const crypto = root.crypto || (typeof require === "function" ? require("node:crypto").webcrypto : null);
     if (!crypto?.subtle) throw Error("A conferência de integridade do conteúdo está indisponível.");
-    const bytes = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical(value))));
+    const serialized = hasBinding(field(field(value, "content"), "execution")) ? exactJSON(value) : canonical(value);
+    const bytes = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(serialized)));
     return "sha256:" + Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
   }
   function collection(value, name) {
@@ -108,6 +110,27 @@
     }
     return pointMap;
   }
+  const bindingKeys = ["catalogBindingId", "catalogHash", "catalogVersion"];
+  const hasBinding = (execution) => bindingKeys.some((key) => field(execution, key) !== undefined && field(execution, key) !== null);
+  function validateCatalogBinding(content) {
+    const { execution, catalog, catalogBinding: binding, scope, inspection, asset } = content;
+    if (!hasBinding(execution)) { if (binding !== undefined) throw Error("Metadados de vínculo sem ponteiros explícitos na execução."); return null; }
+    const metadataKeys = ["status", "id", "catalogId", "contentHash", "versionLabel", "procedureReference", "selectedAt", "selectedBy", "selectionVersion", "scope"],
+      catalogKeys = ["id", "tenantId", "ownerId", "status", "versionLabel", "procedureReference", "applicability", "items", "source", "verifiedAt"],
+      pinnedScopeKeys = ["ownerId", "inspectionId", "contractId", "systemId", "assetId", "inspectionType", "assetType"];
+    if (!binding || Object.keys(binding).some((key) => !metadataKeys.includes(key)) || metadataKeys.some((key) => !own(binding, key))
+      || binding.status !== "pinned" || !UUID.test(binding.id || "") || binding.id !== execution.catalogBindingId || !UUID.test(binding.catalogId || "") || binding.catalogId !== execution.catalogId
+      || !/^[a-f0-9]{64}$/.test(binding.contentHash || "") || binding.contentHash !== execution.catalogHash || typeof binding.versionLabel !== "string" || !binding.versionLabel.trim() || binding.versionLabel !== execution.catalogVersion
+      || typeof binding.procedureReference !== "string" || !binding.procedureReference.trim() || !UUID.test(binding.selectedBy || "") || typeof binding.selectedAt !== "string" || !Number.isFinite(Date.parse(binding.selectedAt)) || !Number.isSafeInteger(binding.selectionVersion) || binding.selectionVersion < 1 || binding.selectionVersion > inspection.version
+      || !binding.scope || Object.keys(binding.scope).some((key) => !pinnedScopeKeys.includes(key)) || pinnedScopeKeys.some((key) => !own(binding.scope, key))) throw Error("Vínculo imutável do catálogo ausente ou divergente dos ponteiros salvos da execução.");
+    for (const key of ["ownerId", "inspectionId", "contractId", "systemId", "assetId"]) if (binding.scope[key] !== scope[key]) throw Error("Vínculo do catálogo pertence a outro escopo de inspeção.");
+    if (binding.scope.inspectionType !== inspection.type || binding.scope.assetType !== asset.type || Object.keys(catalog).some((key) => !catalogKeys.includes(key)) || catalogKeys.some((key) => !own(catalog, key))
+      || catalog.id !== binding.catalogId || catalog.ownerId !== scope.ownerId || !UUID.test(catalog.tenantId || "") || catalog.status !== "verified" || catalog.versionLabel !== binding.versionLabel || catalog.procedureReference !== binding.procedureReference
+      || !catalog.applicability || typeof catalog.applicability !== "object" || Array.isArray(catalog.applicability) || !catalog.source || typeof catalog.source !== "object" || Array.isArray(catalog.source) || typeof catalog.verifiedAt !== "string" || !Number.isFinite(Date.parse(catalog.verifiedAt))) throw Error("Snapshot fixado do catálogo diverge do vínculo, procedimento ou escopo da inspeção.");
+    // contentHash is PostgreSQL's opaque JSON token. Equality here cross-checks
+    // saved SQL responses; this helper does not recompute it using JS ordering.
+    return binding;
+  }
   function validateContent(content) {
     const { scope, company, contract, system, asset, inspection, execution, items, photos, findings, rtis, catalog, recordVersions } = content;
     if (!scope || scopeKeys.some((key) => !UUID.test(scope[key] || ""))) throw Error("Identifique cliente, contrato, sistema, TAG, inspeção e execução por ID.");
@@ -115,6 +138,7 @@
     sameScope(asset, scope, ["systemId"]); sameScope(inspection, scope, ["contractId", "systemId", "assetId"]); sameScope(execution, scope, ["contractId", "systemId", "assetId", "inspectionId"]);
     if (inspection.type !== "visual" || execution.type !== "visual" || execution.recordClass !== "field_lvt" || execution.executionVersion !== 1 || inspection.module !== "integridade") throw Error("Este rascunho aceita somente a execução visual explícita; espessura tem documento separado.");
     if (inspection.campaignId !== execution.campaignId || execution.inspectorProfessionalId && inspection.assigneeProfessionalId !== execution.inspectorProfessionalId) throw Error("Campanha ou responsável diverge da atividade.");
+    validateCatalogBinding(content);
     const shells = execution.items || [], answers = execution.answers || [];
     if (!Array.isArray(shells) || !Array.isArray(answers) || shells.length > 1000 || answers.length > 1000) throw Error("Itens ou respostas inválidos.");
     const shellIds = new Set(), catalogIds = new Set(), answerIds = new Set(), outcome = outcomeOf(execution);
@@ -194,7 +218,7 @@
     if (field(inspectionRaw, "id") !== inspection.id || field(executionRaw, "id") !== execution.id || field(inspectionRaw, "version") !== inspection.version || field(executionRaw, "version") !== execution.version) throw Error("A execução mudou durante a consulta. Atualize antes de conferir.");
     // Approval-like display fields are never trusted by this draft. Functional
     // execution data, however, must agree with the saved canonical snapshot.
-    for (const key of [...scopeKeys, "module", "campaignId", "recordClass", "executionVersion", "type", "status", "catalogId", "items", "answers", "observedOn", "inspector", "inspectorProfessionalId", "technicalReviewRequired", "outcome", "coverage"])
+    for (const key of [...scopeKeys, "module", "campaignId", "recordClass", "executionVersion", "type", "status", "catalogId", ...bindingKeys, "items", "answers", "observedOn", "inspector", "inspectorProfessionalId", "technicalReviewRequired", "outcome", "coverage"])
       if (canonical(field(executionRaw, key) ?? null) !== canonical(field(execution, key) ?? null)) throw Error("Conteúdo da execução diverge do snapshot salvo; atualize a conferência.");
     const shells = arrayShape(field(executionRaw, "items") || [], "itens da execução"), answers = arrayShape(field(executionRaw, "answers") || [], "respostas da execução");
     if (shells.length > 1000 || answers.length > 1000) throw Error("Itens ou respostas da execução excedem o limite.");
@@ -217,9 +241,16 @@
     const keptIds = new Set([scope.contractId, scope.assetId, scope.inspectionId, scope.executionId, ...items.map((row) => field(row, "id")), ...photos.map((row) => field(row, "id")), ...findings.map((row) => field(row, "id")), ...rtis.map((row) => field(row, "id")), ...points.map((row) => field(row, "id"))]);
     const catalogRaw = field(detailRaw, "catalog"), definitions = select(arrayShape(field(catalogRaw, "items") || [], "catálogo"), (row) => usedCatalogIds.has(field(row, "id")), "itens do catálogo", 1000);
     if (new Set(definitions.map((row) => field(row, "id"))).size !== definitions.length) throw Error("Definição selecionada do catálogo repetida.");
-    const content = clone({ scope, company: field(snapshot, "company"), contract: field(snapshot, "contract"), system: field(snapshot, "system"), asset: exact(rows.assets, scope.assetId, "TAG"), inspection: inspectionRaw, execution: executionRaw,
+    const content = (hasBinding(execution) ? cloneExact : clone)({ scope, company: field(snapshot, "company"), contract: field(snapshot, "contract"), system: field(snapshot, "system"), asset: exact(rows.assets, scope.assetId, "TAG"), inspection: inspectionRaw, execution: executionRaw,
       items, photos, findings, rtis, catalog: catalogRaw ? { id: field(catalogRaw, "id"), status: field(catalogRaw, "status"), reason: field(catalogRaw, "reason"), source: field(catalogRaw, "source"), verifiedAt: field(catalogRaw, "verifiedAt"), items: definitions } : { status: "unavailable", items: [] },
       recordVersions: select(rows.recordVersions, (row) => keptIds.has(field(row, "id")), "versões", keptIds.size), sourceProvenance: [] });
+    if (hasBinding(execution)) {
+      const detailBinding = cloneExact(field(detailRaw, "catalogBinding")), bindingRows = arrayShape(field(snapshot, "catalogBindings"), "vínculos de catálogo"),
+        pinned = cloneExact(exact(bindingRows, execution.catalogBindingId, "Vínculo de catálogo")), { catalog: pinnedCatalog, ...pinnedMetadata } = pinned;
+      selectedIdentities(bindingRows, [pinned], "vínculos de catálogo");
+      if (exactJSON(detailBinding) !== exactJSON(pinnedMetadata) || exactJSON(catalogRaw) !== exactJSON(pinnedCatalog)) throw Error("Vínculo ou snapshot integral do catálogo diverge da resposta canônica salva.");
+      content.catalogBinding = detailBinding; content.catalog = cloneExact(catalogRaw);
+    } else if (field(field(detailRaw, "catalogBinding"), "status") === "pinned") throw Error("Catálogo declarado fixado sem ponteiros explícitos da execução.");
     // Keep the old shape/digest for saved legacy conferences without points.
     if (points.length) content.points = clone(sorted(points));
     for (const name of ["items", "photos", "findings", "rtis", "recordVersions"]) content[name] = sorted(content[name]);
@@ -294,7 +325,7 @@
     invalid();
   }
   async function createPdf(record, images = {}, options = {}, jsPDFctor) {
-    const content = validateContent(clone(record.content));
+    const content = validateContent((hasBinding(field(record.content, "execution")) ? cloneExact : clone)(record.content));
     if (record.schema !== SCHEMA || record.contentDigest !== await hash({ schema: SCHEMA, content })) throw Error("O conteúdo congelado mudou. Gere nova conferência dos registros salvos.");
     const outcome = outcomeOf(content.execution), goodCondition = outcome === "good_condition", coverage = content.execution.coverage || null,
       imageOf = (id) => images instanceof Map ? images.get(id) : images[id], requiredImages = new Map();
@@ -339,6 +370,12 @@
     paragraph("IDs internos do recorte: cliente " + content.scope.ownerId + " | contrato " + content.scope.contractId + " | sistema " + content.scope.systemId + " | ativo " + content.scope.assetId, false, 8);
     paragraph("Geração desta cópia de conferência: " + generatedAt);
     paragraph("Digest do conteúdo e versões (não é assinatura, número ou revisão técnica): " + record.contentDigest, false, 8);
+    if (content.catalogBinding) {
+      paragraph("Catálogo fixado explicitamente nesta inspeção: " + content.catalogBinding.catalogId + " · versão " + content.catalogBinding.versionLabel, true, 9);
+      paragraph("Procedimento de referência declarado: " + content.catalogBinding.procedureReference);
+      paragraph("Vínculo imutável: " + content.catalogBinding.id + " · versão da seleção " + content.catalogBinding.selectionVersion + " · seleção em " + content.catalogBinding.selectedAt, false, 8);
+      paragraph("Token do snapshot PostgreSQL: " + content.catalogBinding.contentHash + ". Conferência de igualdade entre respostas salvas; este token não é assinatura nem aprovação técnica.", false, 8);
+    }
     heading("Resultado e cobertura declarados");
     paragraph("Resultado informado: " + ({ pending: "Pendente; ausência de RTI não declara boas condições", good_condition: "Boas condições declaradas para a cobertura informada", treatment_required: "Tratativa requerida", technical_review: "Gestão técnica pendente" })[outcome], true);
     if (!own(content.execution, "outcome") || content.execution.outcome === null) paragraph("Registro legado sem classificação explícita de resultado. Este rascunho não o promove a boas condições.");
@@ -392,6 +429,7 @@
     for (let page = 1; page <= pages; page++) { doc.setPage(page); font(8); doc.text("Conferência genérica · sem emissão técnica · " + page + "/" + pages, M, 289); }
     return { doc, filename: "conferencia-" + String(content.asset.tag || "TAG").replace(/[^a-z0-9_-]/gi, "_").slice(0, 70) + "-" + content.scope.inspectionId + ".pdf",
       metadata: deepFreeze({ schema: SCHEMA, draft: true, canIssue: false, technicalNumber: null, technicalRevision: null, technicalApproval: "pending", signatures: [], contentDigest: record.contentDigest, scope: content.scope, outcome,
+        ...(content.catalogBinding ? { catalogBinding: content.catalogBinding } : {}),
         outcomeStatus: !own(content.execution, "outcome") || content.execution.outcome === null ? "legacy_unclassified" : "declared_pending_technical_review", coverage: coverage ? { ...coverage, basis: "inspector_declared_not_inferred_from_photos" } : null,
         pointReferences: (content.points || []).map((point) => ({ id: point.id, version: point.version, label: point.label, locationStatus: point.locationStatus })), embeddedPhotoIds, pending: [...new Set(pending)] }) };
   }
