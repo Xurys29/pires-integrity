@@ -10,6 +10,8 @@ As correções de 30/10 para isolamento dos relatórios por contrato, distinçã
 
 A revisão de 03/11 prepara a conferência offline do catálogo, registra o marco do prazo pela inspeção realizada e acrescenta um rascunho individual de conferência por TAG. Fontes, testes e limites estão em [INSPECAO-CATALOGO-TAG-20261103.md](INSPECAO-CATALOGO-TAG-20261103.md). Catálogo real e matriz permanecem sem ativação; o rascunho não é relatório técnico emitido nem reprodução do modelo final de tubulação.
 
+Os controles locais seguintes preparam composição explícita de checklist, referências versionadas de desenho e pacote de conferência, sem integração com o aplicativo. O estado de cada pendência e o plano específico de acesso, originais e revisão técnica estão em [INSPECAO-CONTROLES-REVISAO-20261103.md](INSPECAO-CONTROLES-REVISAO-20261103.md).
+
 ## Executar e testar na nuvem
 
 Node.js 24 ou superior. Para os importadores Python e seu teste, Python 3.12 com as versões de `requirements-cloud.txt`.
