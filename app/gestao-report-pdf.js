@@ -225,7 +225,10 @@
             paragraph("Número histórico emitido: " + present(rti.issuedNumber,"não informado; ID interno não é número histórico"),{size:9});
             paragraph(present(rti.title || rti.recommendation));
             paragraph(currentness(rti),{size:9});
-            paragraph("Prazo registrado: " + present(rti.due || rti.sourceDue,"não definido") + " | causa: " + present(rti.cause,"não informada"),{size:9});
+            paragraph("Prazo manual registrado: " + present(rti.due,"pendente de definição") + " | Prazo histórico informado na fonte: " + present(rti.sourceDue,"não informado"),{size:9});
+            paragraph("Marco: inspeção realizada em " + present(rti.deadlineAnchor?.date,"data pendente") + ". Matriz de risco Pires pendente de aprovação; nenhum vencimento calculado automaticamente.",{size:9});
+            if (rti.deadlineReviewRequired) paragraph("Prazo requer revisão após alteração na inspeção ou recomendação. Data anterior preservada.",{size:9,color:RED});
+            paragraph("Causa: " + present(typeof rti.cause === "object" ? rti.cause?.description : rti.cause,"não informada"),{size:9});
             paragraph("Responsável pelo atendimento: " + present(rti.responsible,"não definido"),{size:9});
             for (const action of rti.actions || []) paragraph("Ação: " + present(typeof action === "string" ? action : action.description),{size:9});
             source(rti.source);

@@ -56,7 +56,9 @@
         note('Uma recomendação preenchida cria a RTI vinculada ao item automaticamente. As fotos são anexadas ao abrir o item salvo.');
       }else if(operation==='rti-updates'){
         const rti=records('rti').find(r=>r.id===defaults.id);if(!rti)return false;
-        add('responsible','Responsável pelo atendimento','text',false,rti.responsible);add('due','Prazo definido','date',false,rti.due);add('action','Ação necessária ou realizada','textarea',false);add('evidence','Registro / evidência deste acompanhamento','textarea');
+        add('responsible','Responsável pelo atendimento','text',false,rti.responsible);add('due','Prazo manual justificado','date',false,rti.due);add('action','Ação necessária ou realizada','textarea',false);add('evidence','Justificativa do prazo / evidência deste acompanhamento','textarea');
+        note('O prazo é registrado manualmente com justificativa. O marco é a data declarada da inspeção realizada: '+(rti.deadlineAnchor?.date||'pendente')+'. A matriz de risco Pires ainda depende de aprovação; nenhum vencimento é calculado por esta tela.');
+        if(rti.deadlineReviewRequired)note('A inspeção ou a recomendação mudou. Revise o prazo e sua justificativa; a data anterior foi preservada.');
         add('status','Verificação da situação atual','select',false,undefined,[['aberta','Confirmar aberta'],['encerrada','Confirmar encerrada']]);
         add('confirmedOn','Data da verificação atual','date',false);select('evidenceDocumentId','Documento de evidência do atendimento','document',r=>r.assetId===rti.assetId,false);add('reinspection','Reinspeção / verificação de atendimento','textarea',false);
         note('Acompanhar ações não altera sozinho a situação histórica. Encerrar exige verificação de hoje, documento de evidência e resultado da reinspeção.');

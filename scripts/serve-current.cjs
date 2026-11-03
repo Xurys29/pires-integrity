@@ -3,7 +3,7 @@ const http=require('node:http'),fs=require('node:fs'),path=require('node:path');
 const root=path.resolve(__dirname,'../app'),manifest=require('../release/published-manifest.json');
 // Keep the published manifest as immutable release evidence; include only these
 // explicit inspection assets added by the development branch.
-const allowed=new Set([...manifest.map(x=>x.path),'gestao-inspection.js','gestao-inspection.css']);
+const allowed=new Set([...manifest.map(x=>x.path),'gestao-inspection.js','gestao-inspection.css','gestao-tag-report.js']);
 const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml'};
 function runtimeConfig(env=process.env){
  const settings=env.PIRES_MODE==='connected'?require('../app/cloud.js').validateConfig({

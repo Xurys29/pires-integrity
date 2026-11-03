@@ -153,6 +153,7 @@
       return true;
     }
     function drawExecution(host, route, detail, token, key) {
+      if (route.contractId && detail.inspection?.contractId !== route.contractId) { fail(host, Error("A atividade pertence a outro contrato. Abra a inspeção no contrato correspondente.")); return; }
       const inspection = detail.inspection, execution = detail.execution, asset = records("asset").find((a) => a.id === inspection.assetId), catalog = detail.catalog || {}, editable = detail.canExecute === true && execution?.status !== "em_revisao";
       let currentExecution = execution;
       host.dataset.inspectionId = inspection.id;
@@ -161,6 +162,15 @@
       const navigation = el("nav", undefined, "inspection-toolbar");
       button(navigation, "Minhas inspeções", () => go("minhas", "_", inspection.contractId || route.contractId), "secondary");
       button(navigation, "Gestão de RTI", () => options.onInspectionNavigate?.("rtis", "fila", "_", ""), "secondary");
+      if (execution && inspection.type === "visual" && typeof options.onInspectionReport === "function") {
+        const feedback = el("p", undefined, "inspection-feedback"); feedback.setAttribute("role", "status");
+        const report = button(navigation, "Conferir rascunho desta TAG", async () => {
+          report.disabled = true; feedback.textContent = "Conferindo os últimos registros salvos desta execução…";
+          try { await options.onInspectionReport({ inspectionId: inspection.id, executionId: currentExecution.id, executionVersion: currentExecution.version, inspectionVersion: inspection.version }); if (contextKey() === key && token === generation) feedback.textContent = "Conferência dos registros salvos preparada. Alterações não salvas na ficha não integram esta cópia."; }
+          catch (error) { if (contextKey() === key && token === generation) feedback.textContent = error.message; }
+          finally { if (report.isConnected) report.disabled = false; }
+        }, "secondary"); navigation.append(feedback);
+      }
       if (asset) button(navigation, "Book e histórico", () => go("book", asset.id, inspection.contractId || route.contractId), "secondary"); host.append(navigation);
       const identity = section(host, "1. Atividade e responsável");
       pairs(identity, [["Sistema", records("system").find((s) => s.id === asset?.systemId)?.name], ["Tipo da atividade", typeLabel(inspection.type)], ["Data planejada", inspection.plannedDate || inspection.planned], ["Inspetor responsável", inspection.assigneeName || "Não atribuído"], ["Situação", describe({ ...inspection, executionStatus: execution?.status }).status]]);

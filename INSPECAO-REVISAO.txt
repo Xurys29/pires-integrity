@@ -116,3 +116,16 @@ check em 111 arquivos JS; 32 cenários de navegador aprovados com APIs simuladas
 O detalhamento e os limites atuais estão em INSPECAO-CORRECOES-20261030.md.
 As pendências de acesso operacional, catálogo, relatórios individuais, PLH,
 assinatura e isométrico continuam abertas. Nenhuma alteração foi publicada.
+
+Atualização local de revisão em 03/11/2026
+Leitura textual do catálogo de 509 registros concluída; originais não foram
+materializados e seus hashes/layout não foram conferidos localmente. Preparado
+helper de revisão offline sem instalação nem ativação do catálogo. Marco de
+prazo vinculado à data declarada da inspeção, com histórico, prazo manual
+preservado e aviso de revisão. Novo rascunho individual de conferência por TAG
+usa registros salvos e fontes/versões explícitas; não reproduz modelo final de
+tubulação nem emite relatório técnico. Número/revisão/assinaturas pendentes.
+Validação final: npm test 232 (229 aprovados, zero falhas, 3 ignorados); check119
+arquivos JS; 47 cenários de navegador com APIs simuladas. Matriz não ativada;
+faixas, calendário, autoridades e aprovação continuam pendentes. Detalhes em
+INSPECAO-CATALOGO-TAG-20261103.md. Nenhuma mudança de produção foi realizada.

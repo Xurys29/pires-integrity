@@ -20,7 +20,7 @@ test('preview: inspection assets and scoped page load while internal source/conf
  const server=createPreviewServer(config());server.listen(0,'127.0.0.1');await once(server,'listening');
  t.after(()=>new Promise(resolve=>server.close(resolve)));
  const base='http://127.0.0.1:'+server.address().port;
- for(const route of ['/gestao','/gestao-inspection.js','/gestao-inspection.css']){
+ for(const route of ['/gestao','/gestao-inspection.js','/gestao-inspection.css','/gestao-tag-report.js']){
   const response=await fetch(base+route);assert.equal(response.status,200,route);assert.ok((await response.text()).length>0);
  }
  const runtime=await (await fetch(base+'/runtime-config.js')).text();

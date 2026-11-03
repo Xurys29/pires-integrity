@@ -12,7 +12,12 @@
 -- draft guards. This is tested only in transient isolated local databases.
 -- No real catalogue is seeded. A complete curated source must be inspected and
 -- reviewed before a catalogue is installed; arbitrary historical text is not a
--- catalogue. Catalogues are private immutable versions frozen by execution.
+-- catalogue. Executions retain the selected catalogue ID. Privileged catalogue
+-- mutation is not prevented by this candidate; do not claim immutable original
+-- bytes or install a real catalogue without applicability and version controls.
+-- The declared inspection date is only a deadline anchor, never a calculated
+-- deadline or a risk classification. No matrix, calendar or default interval is
+-- activated here; existing recorded deadlines are preserved for technical review.
 begin;
 
 create table pi_gestao_private.inspection_catalogs (
@@ -246,7 +251,7 @@ declare actor uuid; own uuid; inspection_id uuid; request_id uuid; cap jsonb; d 
  receipt pi_gestao_private.operation_receipts; digest text; result jsonb; rec record;
  item jsonb; shell jsonb; answer jsonb; normalized jsonb; answers jsonb:='[]'; item_refs jsonb:='[]';
  condition jsonb; recommendation jsonb; photo jsonb; photo_id text; prior_rti jsonb; finding jsonb; rti jsonb;
- scope jsonb; source jsonb; id uuid; item_id uuid; kind text; observed text; status text; n integer; completed integer:=0; review_needed boolean:=false;
+ scope jsonb; source jsonb; deadline_anchor jsonb; deadline_review boolean; id uuid; item_id uuid; kind text; observed text; status text; n integer; completed integer:=0; review_needed boolean:=false;
  seen text[]:='{}'; reading jsonb; readings jsonb; instrument text;
 begin
  if p_action='reports.system' then
@@ -332,6 +337,7 @@ begin
    source:=jsonb_build_object('format','field_record','actorUserId',actor);
    scope:=jsonb_build_object('assetId',i->>'assetId','inspectionId',i->>'id','campaignId',i->>'campaignId','contractId',i->>'contractId','systemId',i->>'systemId','module',i->>'module');
    e:=pi_gestao_private.ga_put(p_tenant,own,kind,scope||jsonb_build_object('recordClass',case when kind='lvt' then 'field_lvt' else 'measurement_draft' end,'executionVersion',1,'type',i->>'type','status','rascunho','source',source,'inspectorProfessionalId',i->>'assigneeProfessionalId','inspector',i->>'assigneeName','answers','[]'::jsonb,'readings','[]'::jsonb,'items','[]'::jsonb,'catalogId',cat->>'id','technicalReviewRequired',false,'createdAt',now(),'createdBy',actor),actor);
+   deadline_anchor:=jsonb_build_object('event','inspection_performed','date',null,'status','pending_observed_on','inspectionId',i->>'id','executionId',e->>'id','executionVersion',2);
    insert into pi_gestao_private.inspection_executions(tenant_id,owner_id,inspection_id,execution_id,execution_kind,catalog_id) values(p_tenant,own,inspection_id,(e->>'id')::uuid,kind,nullif(cat->>'id','')::uuid);
    if kind='lvt' then perform pi_gestao_private.ga_link(p_tenant,own,(e->>'id')::uuid,kind,inspection_id,'inspection','records_inspection',actor);end if;
    if kind='lvt' then
@@ -340,7 +346,9 @@ begin
      perform pi_gestao_private.ga_link(p_tenant,own,(shell->>'id')::uuid,'lvt_item',(e->>'id')::uuid,'lvt','part_of_lvt',actor);
      item_refs:=item_refs||jsonb_build_array(jsonb_build_object('catalogItemId',item->>'id','itemKey',item->>'itemKey','lvtItemId',shell->>'id'));
     end loop;
-    perform pi_gestao_private.ga_change(p_tenant,own,(e->>'id')::uuid,'lvt',1,jsonb_build_object('items',item_refs,'progress',jsonb_build_object('answered',0,'total',jsonb_array_length(item_refs))),actor,'itens pendentes da LVT preparados');
+    perform pi_gestao_private.ga_change(p_tenant,own,(e->>'id')::uuid,'lvt',1,jsonb_build_object('items',item_refs,'progress',jsonb_build_object('answered',0,'total',jsonb_array_length(item_refs)),'deadlineAnchor',deadline_anchor),actor,'itens pendentes da LVT preparados');
+   else
+    perform pi_gestao_private.ga_change(p_tenant,own,(e->>'id')::uuid,kind,1,jsonb_build_object('deadlineAnchor',deadline_anchor),actor,'marco da inspeção pendente de data declarada');
    end if;
    perform pi_gestao_private.ga_change(p_tenant,own,inspection_id,'inspection',(i->>'version')::bigint,jsonb_build_object('status','em_andamento','executionId',e->>'id'),actor,'inspeção iniciada');
   end if;
@@ -358,6 +366,7 @@ begin
   else
    if exists(select 1 from jsonb_object_keys(p_payload) k where k not in ('ownerId','inspectionId','requestId','expectedVersion','answers','observedOn','instrument','readings')) then raise exception 'Campo de execução não reconhecido; frases livres não são aceitas.' using errcode='22023';end if;
    observed:=pi_gestao_private.ga_date(p_payload->>'observedOn','Data observada');if observed::date>current_date then raise exception 'Data observada futura.' using errcode='22023';end if;
+   deadline_anchor:=jsonb_build_object('event','inspection_performed','date',observed,'status',case when observed is null then 'pending_observed_on' else 'declared' end,'inspectionId',i->>'id','executionId',e->>'id','executionVersion',(e->>'version')::bigint+1);
    patch:=jsonb_build_object('observedOn',observed);
    if i->>'type'='visual' then
     if jsonb_typeof(p_payload->'answers') is distinct from 'array' or jsonb_array_length(p_payload->'answers')>1000 then raise exception 'Respostas inválidas.' using errcode='22023';end if;
@@ -400,9 +409,22 @@ begin
      source:=jsonb_build_object('format','field_record','actorUserId',actor,'observedOn',observed,'catalogId',cat->>'id');
      perform pi_gestao_private.ga_change(p_tenant,own,item_id,'lvt_item',(shell->>'version')::bigint,normalized||jsonb_build_object('description',condition->>'text','conditionSource',condition->'source','recommendationSource',recommendation->'source','status',case when answer->>'notCovered'='true' then 'gestao_tecnica_pendente' when condition is null then 'pendente' else 'respondido' end,'technicalReviewRequired',answer->'notCovered','source',source),actor,'resposta de item da LVT salva');
      select r.body||jsonb_build_object('id',r.id,'version',r.version) into prior_rti from pi_gestao_private.records r where r.tenant_id=p_tenant and r.owner_id=own and r.kind='rti' and r.body->>'executionId'=e->>'id' and r.body->>'lvtItemId'=item_id::text;
+     select r.body||jsonb_build_object('id',r.id,'version',r.version) into finding from pi_gestao_private.records r where r.tenant_id=p_tenant and r.owner_id=own and r.kind='finding' and r.body->>'executionId'=e->>'id' and r.body->>'lvtItemId'=item_id::text;
+     -- Version metadata advances on every content save. Only changes to the
+     -- declared date or selected condition/recommendation invalidate the basis of
+     -- an existing deadline; a no-op save or replay does not create a new review.
+     deadline_review:=coalesce(prior_rti->>'deadlineReviewRequired','false')='true' or (
+      nullif(btrim(prior_rti->>'due'),'') is not null and (
+       (case when prior_rti->'deadlineAnchor' ? 'date' then prior_rti->'deadlineAnchor'->>'date' else prior_rti->>'sourceDate' end) is distinct from observed
+       or (case when shell ? 'conditionId' then shell->>'conditionId' else prior_rti->>'conditionId' end) is distinct from condition->>'id'
+       or (case when shell ? 'description' then shell->>'description' else prior_rti->>'description' end) is distinct from condition->>'text'
+       -- A withdrawn RTI keeps its historical recommendation. The item records
+       -- the effective selection, including an explicit empty choice.
+       or (case when shell ? 'recommendationId' then shell->>'recommendationId' else prior_rti->>'recommendationId' end) is distinct from recommendation->>'id'
+       or (case when shell ? 'recommendationId' and shell->>'recommendationId' is null then null else prior_rti->>'recommendation' end) is distinct from recommendation->>'text'
+      ));
      if recommendation is not null then
-      select r.body||jsonb_build_object('id',r.id,'version',r.version) into finding from pi_gestao_private.records r where r.tenant_id=p_tenant and r.owner_id=own and r.kind='finding' and r.body->>'executionId'=e->>'id' and r.body->>'lvtItemId'=item_id::text;
-      patch:=scope||jsonb_build_object('executionId',e->>'id','description',condition->>'text','recommendation',recommendation->>'text','recommendationId',recommendation->>'id','recommendationSource',recommendation->'source','photoIds',answer->'photoIds','source',source,'sourceDate',observed);
+      patch:=scope||jsonb_build_object('executionId',e->>'id','description',condition->>'text','conditionId',condition->>'id','recommendation',recommendation->>'text','recommendationId',recommendation->>'id','recommendationSource',recommendation->'source','photoIds',answer->'photoIds','source',source,'sourceDate',observed,'deadlineAnchor',deadline_anchor,'deadlineReviewRequired',deadline_review);
       if finding is null then finding:=pi_gestao_private.ga_put(p_tenant,own,'finding',patch,actor);else finding:=pi_gestao_private.ga_change(p_tenant,own,(finding->>'id')::uuid,'finding',(finding->>'version')::bigint,patch,actor,'recomendação do item atualizada');end if;
       patch:=patch||jsonb_build_object('findingId',finding->>'id','title',recommendation->>'text','originType','field_recommendation','technicalReviewRequired',false,'recommendationWithdrawn',false);
       if prior_rti is null then
@@ -415,7 +437,8 @@ begin
       perform pi_gestao_private.ga_link(p_tenant,own,(rti->>'id')::uuid,'rti',(i->>'assetId')::uuid,'asset','affects',actor);
      elsif prior_rti is not null then
       review_needed:=true;
-      perform pi_gestao_private.ga_change(p_tenant,own,(prior_rti->>'id')::uuid,'rti',(prior_rti->>'version')::bigint,jsonb_build_object('technicalReviewRequired',true,'recommendationWithdrawn',true),actor,'retirada de recomendação em rascunho encaminhada à gestão; RTI preservada');
+      if finding is not null then perform pi_gestao_private.ga_change(p_tenant,own,(finding->>'id')::uuid,'finding',(finding->>'version')::bigint,jsonb_build_object('deadlineAnchor',deadline_anchor,'deadlineReviewRequired',deadline_review),actor,'marco da inspeção atualizado; recomendação retirada em rascunho');end if;
+      perform pi_gestao_private.ga_change(p_tenant,own,(prior_rti->>'id')::uuid,'rti',(prior_rti->>'version')::bigint,jsonb_build_object('technicalReviewRequired',true,'recommendationWithdrawn',true,'deadlineAnchor',deadline_anchor,'deadlineReviewRequired',deadline_review),actor,'retirada de recomendação em rascunho encaminhada à gestão; RTI preservada');
      end if;
     end loop;
     patch:=jsonb_build_object('observedOn',observed,'answers',answers,'progress',jsonb_build_object('answered',completed,'total',jsonb_array_length(cat->'items')),'technicalReviewRequired',review_needed);
@@ -430,6 +453,7 @@ begin
     patch:=jsonb_build_object('observedOn',observed,'instrument',instrument,'readings',readings,'progress',jsonb_build_object('answered',jsonb_array_length(readings),'total',null));
    end if;
    kind:=case when i->>'type'='visual' then 'lvt' else 'document' end;
+   patch:=patch||jsonb_build_object('deadlineAnchor',deadline_anchor);
    perform pi_gestao_private.ga_change(p_tenant,own,(e->>'id')::uuid,kind,(e->>'version')::bigint,patch,actor,'mesmo rascunho de execução salvo');
   end if;
  end if;

@@ -8,6 +8,8 @@ Esta branch de inspeção contém alterações ainda não publicadas sobre o com
 
 As correções de 30/10 para isolamento dos relatórios por contrato, distinção entre progresso administrativo e emissão técnica e coerência da fila com o escopo vigente estão em [INSPECAO-CORRECOES-20261030.md](INSPECAO-CORRECOES-20261030.md). Continuam somente na versão em revisão.
 
+A revisão de 03/11 prepara a conferência offline do catálogo, registra o marco do prazo pela inspeção realizada e acrescenta um rascunho individual de conferência por TAG. Fontes, testes e limites estão em [INSPECAO-CATALOGO-TAG-20261103.md](INSPECAO-CATALOGO-TAG-20261103.md). Catálogo real e matriz permanecem sem ativação; o rascunho não é relatório técnico emitido nem reprodução do modelo final de tubulação.
+
 ## Executar e testar na nuvem
 
 Node.js 24 ou superior. Para os importadores Python e seu teste, Python 3.12 com as versões de `requirements-cloud.txt`.

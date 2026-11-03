@@ -2209,6 +2209,54 @@
     onInspectionRequest: (operation, body) => api(path(operation), body),
     onInspectionRefresh: refresh,
     onInspectionPhoto: (file) => connected.uploadPhoto(file),
+    async onInspectionReport(selected) {
+      const ownerId = company, tenantId = connected.getTenant(), routeHash = window.location.hash, helper = window.PiresGestaoTagReport,
+        current = () => company === ownerId && connected.getTenant() === tenantId && window.location.hash === routeHash && !$("workspace").hidden;
+      if (!helper?.freeze || !helper?.createPdf || !window.PiresGestaoReportPDF?.normalizePhoto) throw Error("A conferência individual está indisponível.");
+      const detail = await api(path("execution/" + selected.inspectionId));
+      if (!current()) throw Error("O contexto mudou. Abra a inspeção novamente.");
+      const inspection = detail.inspection, execution = detail.execution, selectedRoute = window.PiresGestaoFlow?.parseHash(routeHash);
+      if (selectedRoute?.contractId && selectedRoute.contractId !== inspection?.contractId) throw Error("A atividade pertence a outro contrato. Abra a inspeção no contrato correspondente.");
+      if (inspection?.id !== selected.inspectionId || execution?.id !== selected.executionId || inspection.version !== selected.inspectionVersion || execution.version !== selected.executionVersion || inspection.type !== "visual" || execution.type !== "visual")
+        throw Error("A execução salva mudou. Atualize a ficha antes de conferir o rascunho.");
+      const scope = { ownerId, contractId: inspection.contractId, systemId: inspection.systemId, assetId: inspection.assetId, inspectionId: inspection.id, executionId: execution.id },
+        reportPath = "reports/contracts/" + scope.contractId + "/system/" + scope.systemId,
+        snapshot = await api(path(reportPath));
+      if (!current()) throw Error("O contexto mudou. Abra a inspeção novamente.");
+      const frozen = await helper.freeze({ scope, detail, snapshot }), images = new Map(), originals = new Map();
+      let imageBytes = 0, originalBytes = 0, decodedPixels = 0;
+      const countedSources = new Set();
+      if (!current()) throw Error("O contexto mudou. Abra a inspeção novamente.");
+      for (const photo of frozen.content.photos) {
+        const sourceId = photo.source?.sourceId || photo.sourceId;
+        if (!sourceId) continue;
+        try {
+          if (!originals.has(sourceId)) originals.set(sourceId, connected.download(path("sources/" + sourceId)));
+          const { blob } = await originals.get(sourceId);
+          if (!current()) throw Error("O contexto mudou. Abra a inspeção novamente.");
+          if (blob.size > 8 * 1024 * 1024) throw Object.assign(Error("Foto excede o limite de conferência."), { code: "report_resource_limit" });
+          if (!countedSources.has(sourceId)) { countedSources.add(sourceId); originalBytes += blob.size; }
+          if (originalBytes > 64 * 1024 * 1024) throw Object.assign(Error("Os originais das fotografias excedem o limite total de conferência; nenhum PDF foi salvo."), { code: "report_resource_limit" });
+          if (!["image/jpeg", "image/png"].includes(blob.type)) throw Error("Foto fora dos formatos aceitos.");
+          const normalized = await window.PiresGestaoReportPDF.normalizePhoto(new Uint8Array(await blob.arrayBuffer()), blob.type);
+          imageBytes += normalized.bytes.byteLength; decodedPixels += normalized.width * normalized.height;
+          if (imageBytes > 64 * 1024 * 1024 || !Number.isFinite(decodedPixels) || decodedPixels > 134217728) throw Object.assign(Error("As fotografias excedem o limite total de conferência; nenhum PDF foi salvo."), { code: "report_resource_limit" });
+          images.set(photo.id, normalized);
+        } catch (error) { if ([401, 403].includes(error.status) || error.code === "report_resource_limit") throw error; }
+        if (!current()) throw Error("O contexto mudou. Abra a inspeção novamente.");
+      }
+      const latestDetail = await api(path("execution/" + selected.inspectionId));
+      if (!current()) throw Error("O contexto mudou. Abra a inspeção novamente.");
+      const latestSnapshot = await api(path(reportPath));
+      if (!current()) throw Error("O contexto mudou. Abra a inspeção novamente.");
+      const checked = await helper.freeze({ scope, detail: latestDetail, snapshot: latestSnapshot });
+      if (checked.contentDigest !== frozen.contentDigest) throw Error("Os registros salvos mudaram durante a conferência. Atualize a ficha e tente novamente.");
+      if (!current()) throw Error("O contexto mudou. Abra a inspeção novamente.");
+      const result = await helper.createPdf(frozen, images);
+      if (!current()) throw Error("O contexto mudou. Abra a inspeção novamente.");
+      if (result.metadata?.draft !== true || result.metadata?.canIssue !== false || result.metadata?.contentDigest !== frozen.contentDigest) throw Error("O documento não confirmou o estado de rascunho de conferência.");
+      result.doc.save(result.filename);
+    },
     onProjectRequest: (operation, body) => { msg(""); return api(path(operation), body); },
     onProjectRefresh: refresh,
     async onProjectUpload(file) {

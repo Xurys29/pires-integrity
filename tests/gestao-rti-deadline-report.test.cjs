@@ -1,0 +1,15 @@
+'use strict';
+const {test}=require('node:test'),assert=require('node:assert/strict');
+const {jsPDF}=require('jspdf'),Report=require('../app/gestao-report-pdf.js');
+function fixture(){return {generatedAt:'2026-11-03T12:00:00Z',company:{id:'owner',name:'SYNTHETIC CLIENT'},contract:{id:'contract',name:'SYNTHETIC CONTRACT'},system:{id:'system',name:'SYNTHETIC SYSTEM'},assets:[{id:'asset',tag:'SYNTHETIC-TAG',systemId:'system'}],inspections:[{id:'inspection',assetId:'asset',contractId:'contract',systemId:'system',type:'visual',planned:'2026-10-20'}],lvts:[{id:'lvt',assetId:'asset',inspectionId:'inspection',contractId:'contract',systemId:'system',recordClass:'field_lvt',observedOn:'2026-10-28'}],lvtItems:[{id:'item',assetId:'asset',inspectionId:'inspection',lvtId:'lvt',itemKey:'SYNTHETIC-ITEM',component:'SYNTHETIC COMPONENT'}],photos:[],findings:[{id:'finding',assetId:'asset',lvtId:'lvt',lvtItemId:'item',description:'SYNTHETIC CONDITION',recommendation:'SYNTHETIC RECOMMENDATION'}],rtis:[{id:'rti',assetId:'asset',lvtId:'lvt',lvtItemId:'item',findingId:'finding',contractId:'contract',title:'SYNTHETIC RTI',recommendation:'SYNTHETIC RECOMMENDATION',due:'2026-12-01',sourceDue:'2025-12-01',deadlineAnchor:{event:'inspection_performed',date:'2026-10-28',status:'declared',inspectionId:'inspection',executionId:'lvt',executionVersion:2},deadlineReviewRequired:true,cause:{description:'SYNTHETIC CAUSE'}}]};}
+function rendered(input){const rows=[];function Factory(options){const doc=new jsPDF(options),text=doc.text;doc.text=function(value,...args){rows.push(Array.isArray(value)?value.join(' '):String(value));return text.call(this,value,...args);};return doc;}const result=Report.createPdf(input,{}, {},Factory);return {text:rows.join('\n').replace(/\s+/g,' '),result};}
+test('RTI draft report separates manual deadline, historical deadline and declared inspection anchor',()=>{
+ const input=fixture(),before=JSON.stringify(input),{text,result}=rendered(input);
+ assert.match(text,/Prazo manual registrado: 2026-12-01/);assert.match(text,/Prazo histórico informado na fonte: 2025-12-01/);assert.match(text,/Marco: inspeção realizada em 2026-10-28/);
+ assert.doesNotMatch(text,/Marco: inspeção realizada em 2026-10-20/);assert.match(text,/Prazo requer revisão após alteração/);assert.match(text,/nenhum vencimento calculado automaticamente/);assert.match(text,/Causa: SYNTHETIC CAUSE/);
+ assert.equal(result.metadata.draft,true);assert.equal(result.metadata.canIssue,false);assert.equal(JSON.stringify(input),before);
+});
+test('historical deadline and absent anchor never fill a manual deadline or invent an inspection date',()=>{
+ const input=fixture();delete input.rtis[0].due;delete input.rtis[0].deadlineAnchor;input.rtis[0].deadlineReviewRequired=false;
+ const {text}=rendered(input);assert.match(text,/Prazo manual registrado: pendente de definição/);assert.match(text,/Prazo histórico informado na fonte: 2025-12-01/);assert.match(text,/Marco: inspeção realizada em data pendente/);assert.doesNotMatch(text,/Prazo manual registrado: 2025-12-01/);assert.doesNotMatch(text,/Prazo requer revisão após alteração/);
+});
