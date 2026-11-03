@@ -12,6 +12,8 @@ A revisão de 03/11 prepara a conferência offline do catálogo, registra o marc
 
 Os controles locais seguintes preparam composição explícita de checklist, referências versionadas de desenho e pacote de conferência, sem integração com o aplicativo. O estado de cada pendência e o plano específico de acesso, originais e revisão técnica estão em [INSPECAO-CONTROLES-REVISAO-20261103.md](INSPECAO-CONTROLES-REVISAO-20261103.md).
 
+O primeiro [protótipo local de desenho de linha](prototypes/line-drawing/README.md) é executado separadamente com `npm run start:drawing`. Malha, figuras e marcações são esquemáticas, sem escala física ou certificação; o desenho permanece levantamento pendente de revisão e não está integrado à Gestão.
+
 ## Executar e testar na nuvem
 
 Node.js 24 ou superior. Para os importadores Python e seu teste, Python 3.12 com as versões de `requirements-cloud.txt`.
