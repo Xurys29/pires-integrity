@@ -203,7 +203,8 @@ test('fix: report excludes restored contradictory descendants and only admits un
 
 test('fix: scope removal hides an existing draft and reintroduction resumes the same saved record',async t=>{
  const f=await fixture(t);await catalogue(f);const inspection=await f.inspect();await f.assign(inspection);let d=await f.call('execution.start',{inspectionId:inspection.id,requestId:randomUUID()});
- const answers=[{catalogItemId:'i1',itemKey:'1',conditionId:'c1',recommendationId:null,notCovered:false,photoIds:[]}];d=await f.call('execution.save',saveInput(f,d,answers));const originalId=d.execution.id,originalVersion=d.execution.version;
+ const answers=[{catalogItemId:'i1',itemKey:'1',conditionId:'c1',recommendationId:null,notCovered:false,photoIds:[]}];d=await f.call('execution.save',saveInput(f,d,answers));const originalId=d.execution.id,originalVersion=d.execution.version,originalAnswers=JSON.parse(JSON.stringify(d.execution.answers));
+ assert.deepEqual(originalAnswers.map(answer=>Object.fromEntries(Object.keys(answers[0]).map(key=>[key,answer[key]]))),answers);
  const campaignBody=(await f.db.query('select body from pi_gestao_private.records where tenant_id=$1 and owner_id=$2 and id=$3',[f.ids.tenantA,f.owner,f.scope.campaign.id])).rows[0].body;
  const contractBody=(await f.db.query('select body from pi_gestao_private.records where tenant_id=$1 and owner_id=$2 and id=$3',[f.ids.tenantA,f.owner,f.scope.contract.id])).rows[0].body;
  const updates=[{id:f.scope.campaign.id,prior:campaignBody,patch:{assetIds:[]}},{id:f.scope.campaign.id,prior:campaignBody,patch:{module:'nr13'}},{id:f.scope.campaign.id,prior:campaignBody,patch:{contractId:randomUUID()}},{id:f.scope.contract.id,prior:contractBody,patch:{assetIds:[],moduleAssetIds:{integridade:[]}}}];
@@ -212,9 +213,9 @@ test('fix: scope removal hides an existing draft and reintroduction resumes the 
   assert.equal((await f.call('execution.list')).inspections.some(x=>x.id===inspection.id),false);
   await assert.rejects(f.call('execution.get',{inspectionId:inspection.id}),{code:'42501'});await assert.rejects(f.call('execution.save',saveInput(f,d,answers)),{code:'42501'});
   await f.db.query('update pi_gestao_private.records set body=$4::jsonb where tenant_id=$1 and owner_id=$2 and id=$3',[f.ids.tenantA,f.owner,change.id,JSON.stringify(change.prior)]);
-  const restored=await f.call('execution.get',{inspectionId:inspection.id});assert.equal(restored.execution.id,originalId);assert.equal(restored.execution.version,originalVersion);assert.deepEqual(restored.execution.answers,answers);assert.equal((await f.call('execution.list')).inspections[0].executionId,originalId);
+  const restored=await f.call('execution.get',{inspectionId:inspection.id});assert.equal(restored.execution.id,originalId);assert.equal(restored.execution.version,originalVersion);assert.deepEqual(restored.execution.answers,originalAnswers);assert.equal((await f.call('execution.list')).inspections[0].executionId,originalId);
  }
- const disk=await f.db.dumpDataDir(),reopened=await setup({loadDataDir:disk});try{const restored=await reopened.call(f.ids.tenantA,'execution.get',{ownerId:f.owner,inspectionId:inspection.id});assert.equal(restored.execution.id,originalId);assert.deepEqual(restored.execution.answers,answers);}finally{await reopened.close();}
+ const disk=await f.db.dumpDataDir(),reopened=await setup({loadDataDir:disk});try{const restored=await reopened.call(f.ids.tenantA,'execution.get',{ownerId:f.owner,inspectionId:inspection.id});assert.equal(restored.execution.id,originalId);assert.deepEqual(restored.execution.answers,originalAnswers);}finally{await reopened.close();}
  assert.equal((await f.db.query('select count(*)::int n from pi_gestao_private.inspection_executions')).rows[0].n,1);
 });
 

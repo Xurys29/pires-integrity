@@ -80,6 +80,7 @@
     function sourceSituation(parent, rti) {
       const summary = root.PiresAssetCards?.describeRti(rti);
       fields(parent, [["Situação literal da fonte", summary?.sourceStatus || rti?.sourceStatus || rti?.status], ["Data da situação na fonte", rti?.sourceDate], ["Motivo da ausência de data", rti?.sourceDateMissingReason], ["Atualidade", summary?.currentnessLabel || "Atualidade desconhecida — sem confirmação da situação atual"], ["Evidência de abertura no original", rti?.openingEvidence]]);
+      if (summary?.followupOpen) notice(parent, "Tratativa de campo aberta para acompanhamento. A data da inspeção é o marco; registrar depois não muda essa data nem confirma a condição física de hoje.");
     }
     function link(parent, label, module, view, itemId = "_", contractId = current?.contractId || "") {
       const button = el("button", label);
@@ -442,7 +443,7 @@
         notice(container, "A RTI documentada acompanha a origem com o mesmo ID, sem cópia. Várias RTIs da mesma TAG permanecem separadas. A situação histórica da fonte não confirma que a RTI continua aberta hoje; vínculos não confirmados permanecem pendentes.");
         const search = el("input"); search.type = "search"; search.placeholder = "Buscar por TAG ou recomendação"; search.setAttribute("aria-label", "Buscar RTI");
         const filter = el("select"); filter.setAttribute("aria-label", "Filtrar situação da RTI");
-        for (const [value, label] of [["", "Todas as situações"], ["aberta", "Abertas com confirmação atual"], ["historica", "Situação histórica a confirmar"], ["encerrada", "Encerradas"]]) { const opt = el("option", label); opt.value = value; filter.append(opt); }
+        for (const [value, label] of [["", "Todas as situações"], ["aberta", "Abertas para acompanhamento"], ["historica", "Situação física a confirmar"], ["encerrada", "Encerradas"]]) { const opt = el("option", label); opt.value = value; filter.append(opt); }
         const toolbar = el("div", undefined, "flow-filter"); toolbar.append(search, filter); container.append(toolbar);
         const cards = [];
         for (const rti of list) {
@@ -453,7 +454,7 @@
           link(card, "Abrir RTI", "rtis", "detalhe", rti.id, "");
           cards.push({ card, rti });
         }
-        const apply = () => { for (const {card, rti} of cards) { const summary = root.PiresAssetCards?.describeRti(rti), text = [rti.title, rti.recommendation, validAssets.get(rti.assetId)?.tag].join(" ").toLocaleLowerCase("pt-BR"); card.hidden = !text.includes(search.value.trim().toLocaleLowerCase("pt-BR")) || filter.value === "aberta" && !summary?.open || filter.value === "historica" && summary?.currentness === "confirmed_current" || filter.value === "encerrada" && !(summary?.currentness === "confirmed_current" && rti.status === "encerrada"); } };
+        const apply = () => { for (const {card, rti} of cards) { const summary = root.PiresAssetCards?.describeRti(rti), text = [rti.title, rti.recommendation, validAssets.get(rti.assetId)?.tag].join(" ").toLocaleLowerCase("pt-BR"); card.hidden = !text.includes(search.value.trim().toLocaleLowerCase("pt-BR")) || filter.value === "aberta" && !(summary?.open || summary?.followupOpen) || filter.value === "historica" && summary?.currentness === "confirmed_current" || filter.value === "encerrada" && !(summary?.currentness === "confirmed_current" && rti.status === "encerrada"); } };
         search.oninput = apply; filter.onchange = apply;
         if (!list.length) notice(container, "Nenhuma RTI disponível neste cliente. Recomendações reais documentadas geram RTI pelo fluxo de achados; RTIs históricas podem ser vinculadas a seu original. Nenhum registro de teste é criado.");
         if (operational()) { operation(container, "documents", { documentType: "rti" }); operation(container, "rtis"); }
@@ -464,7 +465,7 @@
         originAsset = validAssets.get(origin.assetId || rti?.assetId),
         originClientValid = !origin.clientId || origin.clientId === context().client?.id,
         originFinding = records("finding").find((item) => item.id === (origin.findingId || rti?.findingId) && item.assetId === originAsset?.id),
-        inspection = originClientValid && (state.inspection || []).find((item) => item.id === (origin.inspectionId || originFinding?.inspectionId) && item.assetId === originAsset?.id),
+        inspection = originClientValid && (state.inspection || []).find((item) => item.id === (origin.inspectionId || rti?.inspectionId || originFinding?.inspectionId) && item.assetId === originAsset?.id),
         contract = originClientValid && (state.contract || []).find((item) => item.id === (origin.contractId || rti?.contractId || originFinding?.contractId) && (!originAsset || item.assetIds?.includes(originAsset.id))),
         finding = originClientValid && records("finding").find((item) => item.id === (origin.findingId || rti?.findingId) && item.assetId === originAsset?.id),
         document = records("document").find((item) => item.id === rti?.documentId),
@@ -472,8 +473,13 @@
       container.append(el("h1", "RTI · " + (rti?.title || "não selecionada")));
       if (!rti) notice(container, "RTI não selecionada. Estrutura de consulta, sem achado ou prazo preenchido.");
       const source = section(container, "Origem da RTI");
-      fields(source, [["ID interno da RTI", rti?.id], ["Número histórico emitido", rti?.issuedNumber || "Não informado — ID interno não substitui número emitido"], ["Origem", rti?.originType === "documented_recommendation" ? "Recomendação real documentada" : rti?.originType === "historical_rti_document" ? "RTI histórica documentada" : "Não informada"], ["Cliente de origem", originClientValid ? context().client?.name : undefined], ["Contrato / escopo", contract?.name || "Vínculo pendente"], ["Linha / TAG confirmada", originClientValid ? originAsset?.tag || "Vínculo pendente" : undefined], ["Inspeção de origem", inspection?.id], ["Achado", finding?.description || rti?.finding], ["Recomendação", rti?.recommendation || finding?.recommendation], ["Documento de origem", document?.reference], ["Localização no original", rti?.source?.locator ? JSON.stringify(rti.source.locator) : typeof rti?.source === "string" ? rti.source : undefined]]);
+      fields(source, [["ID interno da RTI", rti?.id], ["Número histórico emitido", rti?.issuedNumber || "Não informado — ID interno não substitui número emitido"], ["Origem", rti?.originType === "documented_recommendation" ? "Recomendação real documentada" : rti?.originType === "historical_rti_document" ? "RTI histórica documentada" : rti?.originType === "field_recommendation" ? "Tratativa registrada na inspeção de campo" : "Não informada"], ["Cliente de origem", originClientValid ? context().client?.name : undefined], ["Contrato / escopo", contract?.name || "Vínculo pendente"], ["Linha / TAG confirmada", originClientValid ? originAsset?.tag || "Vínculo pendente" : undefined], ["Inspeção de origem", inspection?.id], ["Achado", finding?.description || rti?.finding], ["Recomendação", rti?.recommendation || finding?.recommendation], ["Documento de origem", document?.reference], ["Localização no original", rti?.source?.locator ? JSON.stringify(rti.source.locator) : typeof rti?.source === "string" ? rti.source : undefined]]);
       sourceSituation(source, rti);
+      if (rti?.originType === "field_recommendation") {
+        const point = records("document").find(item => item.id === rti.pointId && item.recordClass === "field_point_reference" && item.assetId === rti.assetId && item.contractId === rti.contractId && item.inspectionId === rti.inspectionId && item.executionId === rti.executionId && item.lvtItemId === rti.lvtItemId && item.version === rti.pointVersion && item.label === rti.pointLabel);
+        fields(source, [["Origem em campo", "Recomendação de tratativa selecionada na inspeção"], ["Ponto de campo", point?.label || "Vínculo do ponto pendente de conferência"], ["Localização no desenho", point ? "Referência de campo registrada; posição e revisão do isométrico ainda pendentes" : "Ponto de campo ainda não vinculado"], ["Conferência da tratativa", rti.actionabilityStatus === "catalog_declared" ? "Semântica declarada no catálogo da execução" : "Catálogo legado: decisão de tratativa pendente de revisão"]]);
+        if (rti.recommendationWithdrawn) notice(source, "A recomendação foi retirada do rascunho. Esta RTI foi preservada e exige revisão; não foi encerrada automaticamente.");
+      }
       original(source, rti?.source || document?.source);
       const details = section(container, "Causa, prazo e atendimento");
       const cause = typeof rti?.cause === "object" ? rti.cause : null,

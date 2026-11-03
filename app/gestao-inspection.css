@@ -21,7 +21,8 @@
 .inspection-card > .inspection-primary { width: 100%; margin: .4rem 0 .8rem; }
 .inspection-assignment { border-top: 1px solid #e8edef; padding-top: .85rem; margin-top: .6rem; }
 .inspection-assignment label, .inspection-execution-form label, .inspection-workspace > label { display: flex; flex-direction: column; gap: .4rem; margin-bottom: .8rem; font-size: .9rem; color: #264b5f; }
-.inspection-workspace input, .inspection-workspace select { box-sizing: border-box; width: 100%; min-height: 44px; border: 1px solid #c9d7dd; border-radius: 9px; padding: .65rem; background: #fff; color: #17394b; font: inherit; }
+.inspection-workspace input, .inspection-workspace select, .inspection-workspace textarea { box-sizing: border-box; width: 100%; min-height: 44px; border: 1px solid #c9d7dd; border-radius: 9px; padding: .65rem; background: #fff; color: #17394b; font: inherit; }
+.inspection-workspace textarea { resize: vertical; }
 .inspection-workspace select { white-space: normal; }
 .inspection-workspace button { min-height: 44px; padding: .65rem .9rem; border-radius: 9px; margin-right: .4rem; margin-bottom: .5rem; }
 .inspection-book { font-size: .9rem; }
@@ -33,7 +34,15 @@
 .inspection-item-photo { display: block; max-width: 100%; max-height: 340px; object-fit: contain; margin: .75rem 0; border-radius: 9px; }
 .inspection-item-photo[hidden] { display: none; }
 .inspection-reading { display: grid; grid-template-columns: 1fr 1fr .7fr auto; align-items: end; gap: .7rem; border-bottom: 1px solid #e5edef; padding: .7rem 0; }
-.inspection-workspace button:disabled, .inspection-workspace input:disabled, .inspection-workspace select:disabled { opacity: .65; cursor: not-allowed; }
+.inspection-workspace button:disabled, .inspection-workspace input:disabled, .inspection-workspace select:disabled, .inspection-workspace textarea:disabled { opacity: .65; cursor: not-allowed; }
+.inspection-outcome { border: 1px solid #dce5e7; border-radius: 12px; padding: 1rem; margin-top: 1rem; }
+.inspection-outcome-status, .inspection-action-note, .inspection-coverage-note { color: #315a6b; font-size: .9rem; line-height: 1.6; overflow-wrap: anywhere; }
+.inspection-coverage-photos { min-width: 0; margin: 1rem 0; padding: .8rem; border: 1px solid #c9d7dd; border-radius: 10px; }
+.inspection-coverage-photos legend { font-size: .9rem; color: #264b5f; padding: 0 .3rem; }
+.inspection-execution-form .inspection-photo-choice { flex-direction: row; align-items: flex-start; gap: .65rem; padding: .5rem 0; margin: 0; }
+.inspection-photo-choice input[type="checkbox"] { width: 22px; height: 22px; min-height: 22px; flex: 0 0 22px; padding: 0; accent-color: #005a7b; }
+.inspection-photo-choice span { min-width: 0; overflow-wrap: anywhere; }
+.inspection-photo-unavailable { color: #8c5423; }
 @media (max-width: 640px) {
  #tenantAccess:has(#connectedWriteNotice:not([hidden])) { align-items: stretch; flex-direction: column; gap: .65rem; }
  #tenantAccess:has(#connectedWriteNotice:not([hidden])) label { align-items: stretch; flex-direction: column; gap: .35rem; }

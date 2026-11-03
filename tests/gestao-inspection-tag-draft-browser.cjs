@@ -20,7 +20,9 @@ async function runPrior(){
   }
   fs.writeFileSync(path.join(output,"prior-source-check.json"),JSON.stringify({baseCommit,workingTreeUnderTest:true,unchangedOriginalSources:hashes,adaptation:"Only output paths, date and base metadata substituted in memory; product/test sources untouched."},null,2)+"\n");
 }
-async function refresh(f){const response=f.page.waitForResponse(r=>r.url()===endpoint("state"));await f.page.locator("#refresh").click();await response;}
+// Response headers arrive before refresh has applied state and rendered it.
+// Await the existing application handler before navigating between contracts.
+async function refresh(f){await f.page.evaluate(async()=>{await document.getElementById("refresh").onclick();});}
 async function route(f,module,view,item="_",contract=ids.contract){await f.page.evaluate(hash=>{location.hash=hash;},`#gestao/${ids.owner}/${module}/${view}/${item}?contrato=${contract}`);await f.page.waitForFunction(view=>document.getElementById("flowView")?.dataset.view===view,view);}
 async function ready(f,id=ids.visual,execution=ids.visualExecution){await f.page.locator(`.inspection-workspace[data-inspection-id="${id}"][data-execution-id="${execution}"]`).waitFor();}
 function seed(f){

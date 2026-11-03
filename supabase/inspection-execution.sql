@@ -73,6 +73,9 @@ begin
    or choice->'source'->>'fileHash' is distinct from s.id
    or jsonb_typeof(loc) is distinct from 'object' or loc='{}'::jsonb
    then raise exception 'Frase sem proveniência documental conferida.' using errcode='22023';end if;
+   if (choice ? 'requiresTreatment' and jsonb_typeof(choice->'requiresTreatment') is distinct from 'boolean')
+   or (choice ? 'supportsGoodCondition' and jsonb_typeof(choice->'supportsGoodCondition') is distinct from 'boolean')
+   then raise exception 'Metadado de tratativa ou boas condições deve ser booleano declarado pela curadoria.' using errcode='22023';end if;
    choice_ids:=array_append(choice_ids,choice->>'id');
   end loop;
  end loop;
@@ -237,7 +240,7 @@ begin
  when p.id is null or a.id<>p.id then 'A execução pertence ao profissional responsável atribuído.'
  when a.registration_state<>'active' or a.access_revoked_at is not null then 'Cadastro do responsável indisponível.' end;
  return jsonb_build_object('inspection',i||jsonb_build_object('assigneeName',a.name,'assigneeAccessLinked',a.user_id is not null),
- 'execution',e,'catalog',cat,'actorUserId',actor,'professionalId',p.id,'canAssign',manager and cap->>'write'='true',
+ 'execution',e,'catalog',cat,'outcomeWorkflowVersion',1,'points',coalesce((select jsonb_agg(r.body||jsonb_build_object('id',r.id,'version',r.version) order by r.seq) from pi_gestao_private.records r where r.tenant_id=p_tenant and r.owner_id=p_owner and r.kind='document' and r.body->>'recordClass'='field_point_reference' and r.body->>'executionId'=e->>'id' and r.body->>'inspectionId'=i->>'id'),'[]'::jsonb),'actorUserId',actor,'professionalId',p.id,'canAssign',manager and cap->>'write'='true',
  'writeAllowed',cap->>'write'='true','canExecute',coalesce(can_execute,false),'executionBlockReason',reason,
  'professionals',case when manager then coalesce((select jsonb_agg(jsonb_build_object('id',q.id,'name',q.name,'registrationState',q.registration_state,'accessLinked',q.user_id is not null) order by q.name) from pi_team_private.professionals q where q.tenant_id=p_tenant and q.registration_state='active' and q.access_revoked_at is null),'[]') else '[]'::jsonb end);
 end $$;
@@ -253,6 +256,10 @@ declare actor uuid; own uuid; inspection_id uuid; request_id uuid; cap jsonb; d 
  condition jsonb; recommendation jsonb; photo jsonb; photo_id text; prior_rti jsonb; finding jsonb; rti jsonb;
  scope jsonb; source jsonb; deadline_anchor jsonb; deadline_review boolean; id uuid; item_id uuid; kind text; observed text; status text; n integer; completed integer:=0; review_needed boolean:=false;
  seen text[]:='{}'; reading jsonb; readings jsonb; instrument text;
+ outcome text; coverage jsonb; point_ref jsonb; point_body jsonb; point_label text; point_status text;
+ requires_treatment boolean; actionability text; supports_good boolean; no_action_text text;
+ checked_answer jsonb; checked_condition jsonb; checked_recommendation jsonb; checked_item jsonb; checked_point jsonb;
+ selected_photo_ids jsonb:='[]'::jsonb; treatment_count integer:=0; coverage_photo_ids jsonb;
 begin
  if p_action='reports.system' then
   if p_payload ? 'contractId' and nullif(p_payload->>'contractId','') is null then raise exception 'Contrato explícito inválido.' using errcode='22023';end if;
@@ -346,7 +353,7 @@ begin
      perform pi_gestao_private.ga_link(p_tenant,own,(shell->>'id')::uuid,'lvt_item',(e->>'id')::uuid,'lvt','part_of_lvt',actor);
      item_refs:=item_refs||jsonb_build_array(jsonb_build_object('catalogItemId',item->>'id','itemKey',item->>'itemKey','lvtItemId',shell->>'id'));
     end loop;
-    perform pi_gestao_private.ga_change(p_tenant,own,(e->>'id')::uuid,'lvt',1,jsonb_build_object('items',item_refs,'progress',jsonb_build_object('answered',0,'total',jsonb_array_length(item_refs)),'deadlineAnchor',deadline_anchor),actor,'itens pendentes da LVT preparados');
+    perform pi_gestao_private.ga_change(p_tenant,own,(e->>'id')::uuid,'lvt',1,jsonb_build_object('items',item_refs,'progress',jsonb_build_object('answered',0,'total',jsonb_array_length(item_refs)),'deadlineAnchor',deadline_anchor,'outcome','pending','coverage',null),actor,'itens pendentes da LVT preparados');
    else
     perform pi_gestao_private.ga_change(p_tenant,own,(e->>'id')::uuid,kind,1,jsonb_build_object('deadlineAnchor',deadline_anchor),actor,'marco da inspeção pendente de data declarada');
    end if;
@@ -356,15 +363,90 @@ begin
   if e->>'id' is null then raise exception 'Inicie a inspeção antes de salvar.' using errcode='22023';end if;
   if e->>'status' is distinct from 'rascunho' then raise exception 'Ficha enviada para revisão; edição exige devolução técnica.' using errcode='22023';end if;
   if (e->>'version')::bigint is distinct from (p_payload->>'expectedVersion')::bigint then raise exception 'Rascunho alterado; reabra antes de salvar.' using errcode='40001';end if;
+  if i->>'type'='visual' then
+   if p_action='execution.submit' and (p_payload ? 'outcome' or p_payload ? 'coverage') then raise exception 'Salve o resultado e a cobertura antes de enviar para revisão.' using errcode='22023';end if;
+   if p_payload ? 'outcome' and jsonb_typeof(p_payload->'outcome') is distinct from 'string' then raise exception 'Resultado deve ser declarado explicitamente.' using errcode='22023';end if;
+   outcome:=coalesce(p_payload->>'outcome',e->>'outcome','pending');
+   if outcome not in ('pending','good_condition','treatment_required','technical_review') then raise exception 'Resultado de inspeção inválido.' using errcode='22023';end if;
+   if outcome='technical_review' then review_needed:=true;end if;
+   coverage:=case when p_payload ? 'coverage' then p_payload->'coverage' else e->'coverage' end;
+   if coverage='null'::jsonb then coverage:=null;end if;
+   if coverage is not null then
+    if jsonb_typeof(coverage) is distinct from 'object' or exists(select 1 from jsonb_object_keys(coverage) k where k not in ('extent','description','photoIds'))
+    or jsonb_typeof(coverage->'description') is distinct from 'string'
+    or coverage->>'extent' is null or coverage->>'extent' not in ('declared_section','declared_entire_line')
+    or jsonb_typeof(coverage->'photoIds') is distinct from 'array' or jsonb_array_length(coverage->'photoIds')>1000
+    then raise exception 'Cobertura exige extensão declarada, descrição do trecho e lista de fotos.' using errcode='22023';end if;
+    coverage:=jsonb_build_object('extent',coverage->>'extent','description',pi_gestao_private.ga_text(coverage->>'description','Trecho efetivamente inspecionado declarado',2000),'photoIds',coverage->'photoIds');
+   end if;
+  elsif p_payload ? 'outcome' or p_payload ? 'coverage' then raise exception 'Resultado visual e cobertura não se aplicam à ficha de espessura.' using errcode='22023';end if;
   if p_action='execution.submit' then
    if i->>'type'='visual' and (cat->>'status' is distinct from 'verified' or jsonb_array_length(cat->'items')=0 or jsonb_array_length(coalesce(e->'answers','[]'))<>jsonb_array_length(cat->'items') or exists(select 1 from jsonb_array_elements(e->'answers') a where nullif(a->>'conditionId','') is null and a->>'notCovered' is distinct from 'true')) then raise exception 'Cada item precisa de resposta de catálogo conferido ou encaminhamento à gestão técnica.' using errcode='22023';end if;
    if i->>'type'='espessura' and (jsonb_array_length(coalesce(e->'readings','[]'))=0 or nullif(e->>'instrument','') is null) then raise exception 'Medição planejada continua pendente sem instrumento e leituras.' using errcode='22023';end if;
    if nullif(e->>'observedOn','') is null then raise exception 'Informe a data observada antes de enviar.' using errcode='22023';end if;
+
+  if i->>'type'='visual' then
+   if p_action='execution.submit' then answers:=coalesce(e->'answers','[]'::jsonb);observed:=e->>'observedOn';end if;
+   selected_photo_ids:='[]'::jsonb;treatment_count:=0;
+   for checked_answer in select value from jsonb_array_elements(answers) loop
+    selected_photo_ids:=selected_photo_ids||coalesce(checked_answer->'photoIds','[]'::jsonb);
+    select value into item from jsonb_array_elements(cat->'items') where value->>'id'=checked_answer->>'catalogItemId';
+    select value into checked_condition from jsonb_array_elements(coalesce(item->'conditions','[]')) where value->>'id'=checked_answer->>'conditionId';
+    select value into checked_recommendation from jsonb_array_elements(coalesce(item->'recommendations','[]')) where value->>'id'=checked_answer->>'recommendationId';
+    select value into shell from jsonb_array_elements(e->'items') where value->>'catalogItemId'=checked_answer->>'catalogItemId';
+    checked_item:=pi_gestao_private.ga_record(p_tenant,own,(shell->>'lvtItemId')::uuid,'lvt_item');
+    if outcome in ('good_condition','treatment_required') and checked_recommendation is not null and jsonb_typeof(checked_recommendation->'requiresTreatment') is distinct from 'boolean' then raise exception 'O resultado exige classificação de tratativa explícita na curadoria do catálogo.' using errcode='22023';end if;
+    if item is null or checked_item->>'catalogItemId' is distinct from checked_answer->>'catalogItemId'
+    or checked_item->>'conditionId' is distinct from checked_answer->>'conditionId' or checked_item->>'recommendationId' is distinct from checked_answer->>'recommendationId'
+    or (nullif(checked_answer->>'conditionId','') is not null and (checked_condition is null or checked_item->>'description' is distinct from checked_condition->>'text' or checked_item->'conditionSource' is distinct from checked_condition->'source'))
+    or (nullif(checked_answer->>'recommendationId','') is not null and (checked_recommendation is null or checked_item->>'recommendation' is distinct from checked_recommendation->>'text' or checked_item->'recommendationSource' is distinct from checked_recommendation->'source'))
+    then raise exception 'Escolha ou fonte salva diverge do catálogo atual; salve novamente para revisão técnica.' using errcode='22023';end if;
+    if checked_recommendation is not null and (
+     jsonb_typeof(checked_answer->'requiresTreatment') is distinct from 'boolean' or jsonb_typeof(checked_item->'requiresTreatment') is distinct from 'boolean'
+     or (case when checked_recommendation ? 'requiresTreatment' then checked_recommendation->'requiresTreatment' else 'true'::jsonb end) is distinct from checked_answer->'requiresTreatment'
+     or checked_item->'requiresTreatment' is distinct from checked_answer->'requiresTreatment'
+     or checked_answer->>'actionabilityStatus' is distinct from (case when checked_recommendation ? 'requiresTreatment' then 'catalog_declared' else 'legacy_unclassified' end)
+     or checked_item->>'actionabilityStatus' is distinct from checked_answer->>'actionabilityStatus'
+    ) then raise exception 'Classificação de tratativa salva diverge do catálogo atual; salve novamente para revisão técnica.' using errcode='22023';end if;
+    if outcome='good_condition' and (checked_answer->>'notCovered'='true' or checked_condition is null or checked_condition->>'supportsGoodCondition' is distinct from 'true' or checked_answer->>'conditionSupportsGoodCondition' is distinct from 'true' or checked_item->>'conditionSupportsGoodCondition' is distinct from 'true') then raise exception 'Boas condições exige cada condição explicitamente compatível na curadoria; ausência de tratativa não comprova condição boa.' using errcode='22023';end if;
+    if checked_recommendation->>'requiresTreatment'='true' or checked_answer->>'requiresTreatment'='true' then
+     treatment_count:=treatment_count+1;
+     if outcome='good_condition' then raise exception 'Há tratativa nesta execução; não pode ser declarada como boas condições.' using errcode='22023';end if;
+     select r.body||jsonb_build_object('id',r.id,'version',r.version) into finding from pi_gestao_private.records r where r.tenant_id=p_tenant and r.owner_id=own and r.kind='finding' and r.body->>'executionId'=e->>'id' and r.body->>'lvtItemId'=checked_item->>'id';
+     select r.body||jsonb_build_object('id',r.id,'version',r.version) into rti from pi_gestao_private.records r where r.tenant_id=p_tenant and r.owner_id=own and r.kind='rti' and r.body->>'executionId'=e->>'id' and r.body->>'lvtItemId'=checked_item->>'id';
+     if finding is null or rti is null or rti->>'findingId' is distinct from finding->>'id' or finding->>'recommendationId' is distinct from checked_answer->>'recommendationId' or rti->>'recommendationId' is distinct from checked_answer->>'recommendationId' or finding->'photoIds' is distinct from checked_answer->'photoIds' or rti->'photoIds' is distinct from checked_answer->'photoIds' or rti->>'assetId' is distinct from i->>'assetId' or rti->>'inspectionId' is distinct from i->>'id' or rti->>'contractId' is distinct from i->>'contractId' or rti->>'requiresTreatment' is distinct from 'true' or rti->>'recommendationWithdrawn' is distinct from 'false'
+     or finding->>'assetId' is distinct from i->>'assetId' or finding->>'inspectionId' is distinct from i->>'id' or finding->>'contractId' is distinct from i->>'contractId'
+     or finding->>'pointId' is distinct from checked_answer->>'pointId' or rti->>'pointId' is distinct from checked_answer->>'pointId'
+     or finding->'pointVersion' is distinct from checked_answer->'pointVersion' or rti->'pointVersion' is distinct from checked_answer->'pointVersion'
+     or finding->>'pointLabel' is distinct from checked_answer->>'pointLabel' or rti->>'pointLabel' is distinct from checked_answer->>'pointLabel' then raise exception 'A tratativa exige achado e mesma RTI canônicos; salve antes de enviar.' using errcode='22023';end if;
+     if checked_recommendation->>'requiresTreatment'='true' and (checked_item->>'pointLinkStatus' is distinct from 'linked_field_reference' or nullif(checked_answer->>'pointId','') is null) then raise exception 'Tratativa classificada exige referência de campo canônica.' using errcode='22023';end if;
+    end if;
+    if nullif(checked_answer->>'pointId','') is not null or nullif(checked_item->>'pointId','') is not null then
+     if checked_answer->>'pointId' is distinct from checked_item->>'pointId' or checked_answer->>'pointLinkStatus' is distinct from 'linked_field_reference' then raise exception 'Vínculo do ponto salvo diverge do item canônico.' using errcode='22023';end if;
+     checked_point:=pi_gestao_private.ga_record(p_tenant,own,(checked_item->>'pointId')::uuid,'document');
+     if checked_point->>'recordClass' is distinct from 'field_point_reference' or checked_point->>'executionId' is distinct from e->>'id' or checked_point->>'inspectionId' is distinct from i->>'id' or checked_point->>'contractId' is distinct from i->>'contractId' or checked_point->>'assetId' is distinct from i->>'assetId' or checked_point->>'lvtItemId' is distinct from checked_item->>'id' or checked_point->>'label' is distinct from checked_answer->>'pointLabel' or checked_point->'photoIds' is distinct from checked_answer->'photoIds' or checked_point->'version' is distinct from checked_answer->'pointVersion' then raise exception 'Referência de campo diverge do item salvo.' using errcode='42501';end if;
+    end if;
+   end loop;
+   if coverage is not null then
+    coverage_photo_ids:='[]'::jsonb;
+    for photo_id in select value#>>'{}' from jsonb_array_elements(coverage->'photoIds') loop
+     if not selected_photo_ids ? photo_id or coverage_photo_ids ? photo_id then raise exception 'Cobertura exige fotos selecionadas nos itens desta execução, sem repetição.' using errcode='22023';end if;
+     photo:=pi_gestao_private.ga_record(p_tenant,own,photo_id::uuid,'photo');
+     if photo->>'assetId' is distinct from i->>'assetId' or photo->>'inspectionId' is distinct from i->>'id' or photo->>'contractId' is distinct from i->>'contractId' or photo->>'lvtId' is distinct from e->>'id' then raise exception 'Foto da cobertura pertence a outra TAG, inspeção ou contrato.' using errcode='42501';end if;
+     coverage_photo_ids:=coverage_photo_ids||jsonb_build_array(photo_id);
+    end loop;
+   end if;
+   if outcome='good_condition' then
+    if cat->>'status' is distinct from 'verified' or jsonb_array_length(cat->'items')=0 or jsonb_array_length(answers)<>jsonb_array_length(cat->'items') or nullif(observed,'') is null or coverage is null or jsonb_array_length(coverage->'photoIds')=0 then raise exception 'Boas condições exige checklist completo, data observada, cobertura declarada e ao menos uma foto vinculada.' using errcode='22023';end if;
+    if exists(select 1 from pi_gestao_private.records r where r.tenant_id=p_tenant and r.owner_id=own and r.kind='rti' and r.body->>'executionId'=e->>'id') then raise exception 'RTI desta execução permanece para gestão técnica; sua retirada não autoriza boas condições.' using errcode='22023';end if;
+   elsif outcome='treatment_required' and treatment_count=0 then raise exception 'Resultado com tratativa exige ao menos uma recomendação acionável do catálogo.' using errcode='22023';end if;
+   if p_action='execution.save' then patch:=patch||jsonb_build_object('outcome',outcome,'coverage',coverage);end if;
+  end if;
    kind:=case when i->>'type'='visual' then 'lvt' else 'document' end;
-   perform pi_gestao_private.ga_change(p_tenant,own,(e->>'id')::uuid,kind,(e->>'version')::bigint,jsonb_build_object('status','em_revisao','submittedAt',now(),'submittedBy',actor,'signatureStatus','pendente'),actor,'ficha enviada para revisão técnica');
+   perform pi_gestao_private.ga_change(p_tenant,own,(e->>'id')::uuid,kind,(e->>'version')::bigint,jsonb_build_object('status','em_revisao','submittedAt',now(),'submittedBy',actor,'signatureStatus','pendente','technicalReviewRequired',coalesce((e->>'technicalReviewRequired')::boolean,false) or coalesce(outcome='technical_review',false)),actor,'ficha enviada para revisão técnica');
    perform pi_gestao_private.ga_change(p_tenant,own,inspection_id,'inspection',(i->>'version')::bigint,jsonb_build_object('executionStatus','em_revisao'),actor,'execução aguardando revisão');
   else
-   if exists(select 1 from jsonb_object_keys(p_payload) k where k not in ('ownerId','inspectionId','requestId','expectedVersion','answers','observedOn','instrument','readings')) then raise exception 'Campo de execução não reconhecido; frases livres não são aceitas.' using errcode='22023';end if;
+   if exists(select 1 from jsonb_object_keys(p_payload) k where k not in ('ownerId','inspectionId','requestId','expectedVersion','answers','observedOn','instrument','readings','outcome','coverage')) then raise exception 'Campo de execução não reconhecido; frases livres não são aceitas.' using errcode='22023';end if;
    observed:=pi_gestao_private.ga_date(p_payload->>'observedOn','Data observada');if observed::date>current_date then raise exception 'Data observada futura.' using errcode='22023';end if;
    deadline_anchor:=jsonb_build_object('event','inspection_performed','date',observed,'status',case when observed is null then 'pending_observed_on' else 'declared' end,'inspectionId',i->>'id','executionId',e->>'id','executionVersion',(e->>'version')::bigint+1);
    patch:=jsonb_build_object('observedOn',observed);
@@ -372,14 +454,14 @@ begin
     if jsonb_typeof(p_payload->'answers') is distinct from 'array' or jsonb_array_length(p_payload->'answers')>1000 then raise exception 'Respostas inválidas.' using errcode='22023';end if;
     if exists(select 1 from jsonb_array_elements(coalesce(e->'answers','[]')) prior where not exists(select 1 from jsonb_array_elements(p_payload->'answers') next_answer where next_answer->>'catalogItemId'=prior->>'catalogItemId')) then raise exception 'Resposta salva não pode desaparecer implicitamente; envie a escolha vazia explicitamente para revisão.' using errcode='22023';end if;
     for answer in select value from jsonb_array_elements(p_payload->'answers') loop
-     if exists(select 1 from jsonb_object_keys(answer) k where k not in ('itemKey','catalogItemId','conditionId','recommendationId','notCovered','photoIds')) then raise exception 'Resposta aceita somente escolhas do catálogo e fotos do item.' using errcode='22023';end if;
+     if exists(select 1 from jsonb_object_keys(answer) k where k not in ('itemKey','catalogItemId','conditionId','recommendationId','notCovered','photoIds','pointLabel')) then raise exception 'Resposta aceita somente escolhas do catálogo e fotos do item.' using errcode='22023';end if;
      select value into item from jsonb_array_elements(cat->'items') where value->>'id'=answer->>'catalogItemId';
      if item is null or item->>'itemKey' is distinct from answer->>'itemKey' or (item->>'id')=any(seen) then raise exception 'Item fora do catálogo conferido ou repetido.' using errcode='22023';end if;
      seen:=array_append(seen,item->>'id');
      select value into shell from jsonb_array_elements(e->'items') where value->>'catalogItemId'=item->>'id';
      item_id:=(shell->>'lvtItemId')::uuid;
      if jsonb_typeof(answer->'notCovered') is distinct from 'boolean' or jsonb_typeof(answer->'photoIds') is distinct from 'array' then raise exception 'Resposta explícita e lista de fotos obrigatórias.' using errcode='22023';end if;
-     condition:=null;recommendation:=null;
+     condition:=null;recommendation:=null;requires_treatment:=null;actionability:='not_selected';supports_good:=null;point_ref:=null;point_label:=null;point_status:='not_declared';
      if answer->>'notCovered'='true' then
       if nullif(answer->>'conditionId','') is not null or nullif(answer->>'recommendationId','') is not null then raise exception 'Condição não contemplada deve seguir à gestão sem escolha falsa.' using errcode='22023';end if;
       review_needed:=true;
@@ -392,22 +474,51 @@ begin
        select value into recommendation from jsonb_array_elements(item->'recommendations') where value->>'id'=answer->>'recommendationId';
        if recommendation is null or condition is null then raise exception 'Recomendação fora do catálogo ou sem condição respondida.' using errcode='22023';end if;
        if recommendation ? 'conditionIds' and not (recommendation->'conditionIds') ? (condition->>'id') then raise exception 'Recomendação não corresponde à condição na fonte conferida.' using errcode='22023';end if;
-       if observed is null then raise exception 'Recomendação exige data observada.' using errcode='22023';end if;
-       if regexp_replace(lower(btrim(recommendation->>'text')),'[[:punct:]]+$','','g') in ('sem recomendações','sem recomendacoes','não se aplica','nao se aplica','nenhuma','n/a','0','erro') then raise exception 'Texto sem ação não cria recomendação ou RTI.' using errcode='22023';end if;
-       if jsonb_array_length(answer->'photoIds')=0 then raise exception 'Recomendação exige foto vinculada ao item.' using errcode='22023';end if;
+       no_action_text:=regexp_replace(regexp_replace(lower(btrim(recommendation->>'text')),'[[:space:]]+',' ','g'),'[[:punct:][:space:]]+$','','g');
+       if recommendation ? 'requiresTreatment' then
+        requires_treatment:=(recommendation->>'requiresTreatment')::boolean;actionability:='catalog_declared';
+       else
+        -- Compatibility only: existing positive recommendation selections keep
+        -- their RTI, but are explicitly unclassified and need technical review.
+        requires_treatment:=true;actionability:='legacy_unclassified';review_needed:=true;
+       end if;
+       if (no_action_text ~ '^0([.]0+)?$' or no_action_text in ('','–','—','sem recomendação','sem recomendacao','sem recomendações','sem recomendacoes','nenhuma recomendação','nenhuma recomendacao','nenhuma','não se aplica','nao se aplica','n/a','no recommendation','no recommendations','not applicable','0','erro')) and requires_treatment then raise exception 'Texto sem ação não cria tratativa ou RTI; a curadoria deve declarar requiresTreatment=false.' using errcode='22023';end if;
+       if requires_treatment then
+        if observed is null then raise exception 'Recomendação exige data observada.' using errcode='22023';end if;
+        if jsonb_array_length(answer->'photoIds')=0 then raise exception 'Recomendação exige foto vinculada ao item.' using errcode='22023';end if;
+       end if;
       end if;
      end if;
+     if condition ? 'supportsGoodCondition' then supports_good:=(condition->>'supportsGoodCondition')::boolean;end if;
      for photo_id in select value#>>'{}' from jsonb_array_elements(answer->'photoIds') loop
       photo:=pi_gestao_private.ga_record(p_tenant,own,photo_id::uuid,'photo');
-      if photo->>'lvtItemId' is distinct from item_id::text or photo->>'assetId' is distinct from i->>'assetId' then raise exception 'Foto pertence a outro item ou TAG.' using errcode='42501';end if;
+      if photo->>'lvtItemId' is distinct from item_id::text or photo->>'assetId' is distinct from i->>'assetId'
+      or photo->>'lvtId' is distinct from e->>'id' or photo->>'inspectionId' is distinct from i->>'id'
+      or photo->>'contractId' is distinct from i->>'contractId' or photo->>'systemId' is distinct from i->>'systemId'
+      then raise exception 'Foto pertence a outro item, execução, contrato ou TAG.' using errcode='42501';end if;
      end loop;
-     normalized:=jsonb_build_object('catalogItemId',item->>'id','itemKey',item->>'itemKey','conditionId',condition->>'id','recommendationId',recommendation->>'id','notCovered',answer->'notCovered','photoIds',answer->'photoIds');
+     scope:=jsonb_build_object('assetId',i->>'assetId','lvtId',e->>'id','inspectionId',i->>'id','campaignId',i->>'campaignId','contractId',i->>'contractId','systemId',i->>'systemId','module',i->>'module','lvtItemId',item_id);
+     source:=jsonb_build_object('format','field_record','actorUserId',actor,'observedOn',observed,'catalogId',cat->>'id');
+     select count(*) into n from pi_gestao_private.records r where r.tenant_id=p_tenant and r.owner_id=own and r.kind='document' and r.body->>'recordClass'='field_point_reference' and r.body->>'executionId'=e->>'id' and r.body->>'lvtItemId'=item_id::text;
+     if n>1 then raise exception 'Há referências de campo duplicadas; revisão técnica necessária.' using errcode='22023';end if;
+     select r.body||jsonb_build_object('id',r.id,'version',r.version) into point_ref from pi_gestao_private.records r where r.tenant_id=p_tenant and r.owner_id=own and r.kind='document' and r.body->>'recordClass'='field_point_reference' and r.body->>'executionId'=e->>'id' and r.body->>'lvtItemId'=item_id::text;
+     if point_ref is not null and (point_ref->>'contractId' is distinct from i->>'contractId' or point_ref->>'assetId' is distinct from i->>'assetId' or point_ref->>'inspectionId' is distinct from i->>'id' or point_ref->>'systemId' is distinct from i->>'systemId' or point_ref->>'lvtId' is distinct from e->>'id') then raise exception 'Referência de campo fora do escopo da execução.' using errcode='42501';end if;
+     if answer ? 'pointLabel' and jsonb_typeof(answer->'pointLabel') not in ('string','null') then raise exception 'Rótulo de ponto deve ser texto declarado, nunca objeto, número ou booleano.' using errcode='22023';end if;
+     if nullif(btrim(answer->>'pointLabel'),'') is not null then point_label:=pi_gestao_private.ga_text(answer->>'pointLabel','Rótulo de referência de campo declarado',200);else point_label:=point_ref->>'label';end if;
+     if requires_treatment and actionability='catalog_declared' and point_label is null then raise exception 'A tratativa exige rótulo de ponto declarado; nenhuma localização é presumida.' using errcode='22023';end if;
+     if point_label is not null then
+      point_body:=scope||jsonb_build_object('recordClass','field_point_reference','executionId',e->>'id','label',point_label,'photoIds',answer->'photoIds','drawingReference',null,'locationStatus','pending_drawing_reference','source',source);
+      if point_ref is null then point_ref:=pi_gestao_private.ga_put(p_tenant,own,'document',point_body,actor);
+      elsif (point_ref-'id'-'version'-'createdAt'-'createdBy'-'updatedAt'-'updatedBy') is distinct from point_body then point_ref:=pi_gestao_private.ga_change(p_tenant,own,(point_ref->>'id')::uuid,'document',(point_ref->>'version')::bigint,point_body,actor,'referência de campo declarada atualizada; sem localização geométrica presumida');end if;
+      point_status:='linked_field_reference';
+     elsif requires_treatment then point_status:='pending';review_needed:=true;end if;
+     normalized:=jsonb_build_object('catalogItemId',item->>'id','itemKey',item->>'itemKey','conditionId',condition->>'id','recommendationId',recommendation->>'id','notCovered',answer->'notCovered','photoIds',answer->'photoIds','requiresTreatment',requires_treatment,'conditionSupportsGoodCondition',supports_good,'actionabilityStatus',actionability,'pointId',point_ref->>'id','pointLabel',point_label,'pointVersion',point_ref->'version','pointLinkStatus',point_status);
      if condition is not null or answer->>'notCovered'='true' then completed:=completed+1;end if;
      answers:=answers||jsonb_build_array(normalized);
      shell:=pi_gestao_private.ga_record(p_tenant,own,item_id,'lvt_item');
      scope:=jsonb_build_object('assetId',i->>'assetId','lvtId',e->>'id','inspectionId',i->>'id','campaignId',i->>'campaignId','contractId',i->>'contractId','systemId',i->>'systemId','module',i->>'module','lvtItemId',item_id);
      source:=jsonb_build_object('format','field_record','actorUserId',actor,'observedOn',observed,'catalogId',cat->>'id');
-     perform pi_gestao_private.ga_change(p_tenant,own,item_id,'lvt_item',(shell->>'version')::bigint,normalized||jsonb_build_object('description',condition->>'text','conditionSource',condition->'source','recommendationSource',recommendation->'source','status',case when answer->>'notCovered'='true' then 'gestao_tecnica_pendente' when condition is null then 'pendente' else 'respondido' end,'technicalReviewRequired',answer->'notCovered','source',source),actor,'resposta de item da LVT salva');
+     perform pi_gestao_private.ga_change(p_tenant,own,item_id,'lvt_item',(shell->>'version')::bigint,normalized||jsonb_build_object('description',condition->>'text','conditionSource',condition->'source','recommendation',recommendation->>'text','recommendationSource',recommendation->'source','status',case when answer->>'notCovered'='true' then 'gestao_tecnica_pendente' when condition is null then 'pendente' else 'respondido' end,'technicalReviewRequired',answer->'notCovered','source',source),actor,'resposta de item da LVT salva');
      select r.body||jsonb_build_object('id',r.id,'version',r.version) into prior_rti from pi_gestao_private.records r where r.tenant_id=p_tenant and r.owner_id=own and r.kind='rti' and r.body->>'executionId'=e->>'id' and r.body->>'lvtItemId'=item_id::text;
      select r.body||jsonb_build_object('id',r.id,'version',r.version) into finding from pi_gestao_private.records r where r.tenant_id=p_tenant and r.owner_id=own and r.kind='finding' and r.body->>'executionId'=e->>'id' and r.body->>'lvtItemId'=item_id::text;
      -- Version metadata advances on every content save. Only changes to the
@@ -423,12 +534,12 @@ begin
        or (case when shell ? 'recommendationId' then shell->>'recommendationId' else prior_rti->>'recommendationId' end) is distinct from recommendation->>'id'
        or (case when shell ? 'recommendationId' and shell->>'recommendationId' is null then null else prior_rti->>'recommendation' end) is distinct from recommendation->>'text'
       ));
-     if recommendation is not null then
-      patch:=scope||jsonb_build_object('executionId',e->>'id','description',condition->>'text','conditionId',condition->>'id','recommendation',recommendation->>'text','recommendationId',recommendation->>'id','recommendationSource',recommendation->'source','photoIds',answer->'photoIds','source',source,'sourceDate',observed,'deadlineAnchor',deadline_anchor,'deadlineReviewRequired',deadline_review);
+     if requires_treatment then
+      patch:=scope||jsonb_build_object('executionId',e->>'id','description',condition->>'text','conditionId',condition->>'id','recommendation',recommendation->>'text','recommendationId',recommendation->>'id','recommendationSource',recommendation->'source','photoIds',answer->'photoIds','source',source,'sourceDate',observed,'deadlineAnchor',deadline_anchor,'deadlineReviewRequired',deadline_review,'requiresTreatment',true,'actionabilityStatus',actionability,'pointId',point_ref->>'id','pointLabel',point_label,'pointVersion',point_ref->'version','pointLinkStatus',point_status);
       if finding is null then finding:=pi_gestao_private.ga_put(p_tenant,own,'finding',patch,actor);else finding:=pi_gestao_private.ga_change(p_tenant,own,(finding->>'id')::uuid,'finding',(finding->>'version')::bigint,patch,actor,'recomendação do item atualizada');end if;
-      patch:=patch||jsonb_build_object('findingId',finding->>'id','title',recommendation->>'text','originType','field_recommendation','technicalReviewRequired',false,'recommendationWithdrawn',false);
+      patch:=patch||jsonb_build_object('findingId',finding->>'id','title',recommendation->>'text','originType','field_recommendation','technicalReviewRequired',actionability='legacy_unclassified' or point_status='pending','recommendationWithdrawn',false);
       if prior_rti is null then
-       rti:=pi_gestao_private.ga_put(p_tenant,own,'rti',patch||jsonb_build_object('status',case when observed::date=current_date then 'aberta' else 'atualidade_desconhecida' end,'currentness',case when observed::date=current_date then 'confirmed_current' else 'unknown' end,'sourceStatus','Recomendação selecionada na ficha de campo','currentnessConfirmedAt',case when observed::date=current_date then now() else null end,'currentnessEvidence','Seleção registrada pelo responsável autenticado; revisão técnica pendente.','actions','[]'::jsonb,'history','[]'::jsonb),actor);
+       rti:=pi_gestao_private.ga_put(p_tenant,own,'rti',patch||jsonb_build_object('status','aberta','currentness',case when observed::date=current_date then 'confirmed_current' else 'unknown' end,'sourceStatus','Recomendação selecionada na ficha de campo','currentnessConfirmedAt',case when observed::date=current_date then now() else null end,'currentnessEvidence','Seleção registrada pelo responsável autenticado; revisão técnica pendente.','actions','[]'::jsonb,'history','[]'::jsonb),actor);
        perform pi_gestao_private.ga_link(p_tenant,own,(rti->>'id')::uuid,'rti',item_id,'lvt_item','addresses_item',actor);
        perform pi_gestao_private.ga_link(p_tenant,own,(rti->>'id')::uuid,'rti',(finding->>'id')::uuid,'finding','addresses',actor);
       else
@@ -437,11 +548,11 @@ begin
       perform pi_gestao_private.ga_link(p_tenant,own,(rti->>'id')::uuid,'rti',(i->>'assetId')::uuid,'asset','affects',actor);
      elsif prior_rti is not null then
       review_needed:=true;
-      if finding is not null then perform pi_gestao_private.ga_change(p_tenant,own,(finding->>'id')::uuid,'finding',(finding->>'version')::bigint,jsonb_build_object('deadlineAnchor',deadline_anchor,'deadlineReviewRequired',deadline_review),actor,'marco da inspeção atualizado; recomendação retirada em rascunho');end if;
-      perform pi_gestao_private.ga_change(p_tenant,own,(prior_rti->>'id')::uuid,'rti',(prior_rti->>'version')::bigint,jsonb_build_object('technicalReviewRequired',true,'recommendationWithdrawn',true,'deadlineAnchor',deadline_anchor,'deadlineReviewRequired',deadline_review),actor,'retirada de recomendação em rascunho encaminhada à gestão; RTI preservada');
+      if finding is not null then perform pi_gestao_private.ga_change(p_tenant,own,(finding->>'id')::uuid,'finding',(finding->>'version')::bigint,jsonb_build_object('deadlineAnchor',deadline_anchor,'deadlineReviewRequired',deadline_review,'historicalEvidencePreserved',true,'pointId',point_ref->>'id','pointLabel',point_label,'pointVersion',point_ref->'version','pointLinkStatus',point_status),actor,'marco da inspeção atualizado; recomendação retirada em rascunho');end if;
+      perform pi_gestao_private.ga_change(p_tenant,own,(prior_rti->>'id')::uuid,'rti',(prior_rti->>'version')::bigint,jsonb_build_object('technicalReviewRequired',true,'recommendationWithdrawn',true,'historicalEvidencePreserved',true,'deadlineAnchor',deadline_anchor,'deadlineReviewRequired',deadline_review,'pointId',point_ref->>'id','pointLabel',point_label,'pointVersion',point_ref->'version','pointLinkStatus',point_status),actor,'retirada de recomendação em rascunho encaminhada à gestão; RTI preservada');
      end if;
     end loop;
-    patch:=jsonb_build_object('observedOn',observed,'answers',answers,'progress',jsonb_build_object('answered',completed,'total',jsonb_array_length(cat->'items')),'technicalReviewRequired',review_needed);
+    patch:=jsonb_build_object('observedOn',observed,'answers',answers,'progress',jsonb_build_object('answered',completed,'total',jsonb_array_length(cat->'items')),'technicalReviewRequired',review_needed,'outcome',outcome,'coverage',coverage);
    else
     if p_payload ? 'answers' and jsonb_array_length(p_payload->'answers')>0 then raise exception 'Atividade de espessura não aceita respostas de inspeção visual.' using errcode='22023';end if;
     readings:=coalesce(p_payload->'readings','[]');instrument:=nullif(btrim(p_payload->>'instrument'),'');
@@ -452,6 +563,64 @@ begin
     end loop;
     patch:=jsonb_build_object('observedOn',observed,'instrument',instrument,'readings',readings,'progress',jsonb_build_object('answered',jsonb_array_length(readings),'total',null));
    end if;
+
+  if i->>'type'='visual' then
+   if p_action='execution.submit' then answers:=coalesce(e->'answers','[]'::jsonb);observed:=e->>'observedOn';end if;
+   selected_photo_ids:='[]'::jsonb;treatment_count:=0;
+   for checked_answer in select value from jsonb_array_elements(answers) loop
+    selected_photo_ids:=selected_photo_ids||coalesce(checked_answer->'photoIds','[]'::jsonb);
+    select value into item from jsonb_array_elements(cat->'items') where value->>'id'=checked_answer->>'catalogItemId';
+    select value into checked_condition from jsonb_array_elements(coalesce(item->'conditions','[]')) where value->>'id'=checked_answer->>'conditionId';
+    select value into checked_recommendation from jsonb_array_elements(coalesce(item->'recommendations','[]')) where value->>'id'=checked_answer->>'recommendationId';
+    select value into shell from jsonb_array_elements(e->'items') where value->>'catalogItemId'=checked_answer->>'catalogItemId';
+    checked_item:=pi_gestao_private.ga_record(p_tenant,own,(shell->>'lvtItemId')::uuid,'lvt_item');
+    if outcome in ('good_condition','treatment_required') and checked_recommendation is not null and jsonb_typeof(checked_recommendation->'requiresTreatment') is distinct from 'boolean' then raise exception 'O resultado exige classificação de tratativa explícita na curadoria do catálogo.' using errcode='22023';end if;
+    if item is null or checked_item->>'catalogItemId' is distinct from checked_answer->>'catalogItemId'
+    or checked_item->>'conditionId' is distinct from checked_answer->>'conditionId' or checked_item->>'recommendationId' is distinct from checked_answer->>'recommendationId'
+    or (nullif(checked_answer->>'conditionId','') is not null and (checked_condition is null or checked_item->>'description' is distinct from checked_condition->>'text' or checked_item->'conditionSource' is distinct from checked_condition->'source'))
+    or (nullif(checked_answer->>'recommendationId','') is not null and (checked_recommendation is null or checked_item->>'recommendation' is distinct from checked_recommendation->>'text' or checked_item->'recommendationSource' is distinct from checked_recommendation->'source'))
+    then raise exception 'Escolha ou fonte salva diverge do catálogo atual; salve novamente para revisão técnica.' using errcode='22023';end if;
+    if checked_recommendation is not null and (
+     jsonb_typeof(checked_answer->'requiresTreatment') is distinct from 'boolean' or jsonb_typeof(checked_item->'requiresTreatment') is distinct from 'boolean'
+     or (case when checked_recommendation ? 'requiresTreatment' then checked_recommendation->'requiresTreatment' else 'true'::jsonb end) is distinct from checked_answer->'requiresTreatment'
+     or checked_item->'requiresTreatment' is distinct from checked_answer->'requiresTreatment'
+     or checked_answer->>'actionabilityStatus' is distinct from (case when checked_recommendation ? 'requiresTreatment' then 'catalog_declared' else 'legacy_unclassified' end)
+     or checked_item->>'actionabilityStatus' is distinct from checked_answer->>'actionabilityStatus'
+    ) then raise exception 'Classificação de tratativa salva diverge do catálogo atual; salve novamente para revisão técnica.' using errcode='22023';end if;
+    if outcome='good_condition' and (checked_answer->>'notCovered'='true' or checked_condition is null or checked_condition->>'supportsGoodCondition' is distinct from 'true' or checked_answer->>'conditionSupportsGoodCondition' is distinct from 'true' or checked_item->>'conditionSupportsGoodCondition' is distinct from 'true') then raise exception 'Boas condições exige cada condição explicitamente compatível na curadoria; ausência de tratativa não comprova condição boa.' using errcode='22023';end if;
+    if checked_recommendation->>'requiresTreatment'='true' or checked_answer->>'requiresTreatment'='true' then
+     treatment_count:=treatment_count+1;
+     if outcome='good_condition' then raise exception 'Há tratativa nesta execução; não pode ser declarada como boas condições.' using errcode='22023';end if;
+     select r.body||jsonb_build_object('id',r.id,'version',r.version) into finding from pi_gestao_private.records r where r.tenant_id=p_tenant and r.owner_id=own and r.kind='finding' and r.body->>'executionId'=e->>'id' and r.body->>'lvtItemId'=checked_item->>'id';
+     select r.body||jsonb_build_object('id',r.id,'version',r.version) into rti from pi_gestao_private.records r where r.tenant_id=p_tenant and r.owner_id=own and r.kind='rti' and r.body->>'executionId'=e->>'id' and r.body->>'lvtItemId'=checked_item->>'id';
+     if finding is null or rti is null or rti->>'findingId' is distinct from finding->>'id' or finding->>'recommendationId' is distinct from checked_answer->>'recommendationId' or rti->>'recommendationId' is distinct from checked_answer->>'recommendationId' or finding->'photoIds' is distinct from checked_answer->'photoIds' or rti->'photoIds' is distinct from checked_answer->'photoIds' or rti->>'assetId' is distinct from i->>'assetId' or rti->>'inspectionId' is distinct from i->>'id' or rti->>'contractId' is distinct from i->>'contractId' or rti->>'requiresTreatment' is distinct from 'true' or rti->>'recommendationWithdrawn' is distinct from 'false'
+     or finding->>'assetId' is distinct from i->>'assetId' or finding->>'inspectionId' is distinct from i->>'id' or finding->>'contractId' is distinct from i->>'contractId'
+     or finding->>'pointId' is distinct from checked_answer->>'pointId' or rti->>'pointId' is distinct from checked_answer->>'pointId'
+     or finding->'pointVersion' is distinct from checked_answer->'pointVersion' or rti->'pointVersion' is distinct from checked_answer->'pointVersion'
+     or finding->>'pointLabel' is distinct from checked_answer->>'pointLabel' or rti->>'pointLabel' is distinct from checked_answer->>'pointLabel' then raise exception 'A tratativa exige achado e mesma RTI canônicos; salve antes de enviar.' using errcode='22023';end if;
+     if checked_recommendation->>'requiresTreatment'='true' and (checked_item->>'pointLinkStatus' is distinct from 'linked_field_reference' or nullif(checked_answer->>'pointId','') is null) then raise exception 'Tratativa classificada exige referência de campo canônica.' using errcode='22023';end if;
+    end if;
+    if nullif(checked_answer->>'pointId','') is not null or nullif(checked_item->>'pointId','') is not null then
+     if checked_answer->>'pointId' is distinct from checked_item->>'pointId' or checked_answer->>'pointLinkStatus' is distinct from 'linked_field_reference' then raise exception 'Vínculo do ponto salvo diverge do item canônico.' using errcode='22023';end if;
+     checked_point:=pi_gestao_private.ga_record(p_tenant,own,(checked_item->>'pointId')::uuid,'document');
+     if checked_point->>'recordClass' is distinct from 'field_point_reference' or checked_point->>'executionId' is distinct from e->>'id' or checked_point->>'inspectionId' is distinct from i->>'id' or checked_point->>'contractId' is distinct from i->>'contractId' or checked_point->>'assetId' is distinct from i->>'assetId' or checked_point->>'lvtItemId' is distinct from checked_item->>'id' or checked_point->>'label' is distinct from checked_answer->>'pointLabel' or checked_point->'photoIds' is distinct from checked_answer->'photoIds' or checked_point->'version' is distinct from checked_answer->'pointVersion' then raise exception 'Referência de campo diverge do item salvo.' using errcode='42501';end if;
+    end if;
+   end loop;
+   if coverage is not null then
+    coverage_photo_ids:='[]'::jsonb;
+    for photo_id in select value#>>'{}' from jsonb_array_elements(coverage->'photoIds') loop
+     if not selected_photo_ids ? photo_id or coverage_photo_ids ? photo_id then raise exception 'Cobertura exige fotos selecionadas nos itens desta execução, sem repetição.' using errcode='22023';end if;
+     photo:=pi_gestao_private.ga_record(p_tenant,own,photo_id::uuid,'photo');
+     if photo->>'assetId' is distinct from i->>'assetId' or photo->>'inspectionId' is distinct from i->>'id' or photo->>'contractId' is distinct from i->>'contractId' or photo->>'lvtId' is distinct from e->>'id' then raise exception 'Foto da cobertura pertence a outra TAG, inspeção ou contrato.' using errcode='42501';end if;
+     coverage_photo_ids:=coverage_photo_ids||jsonb_build_array(photo_id);
+    end loop;
+   end if;
+   if outcome='good_condition' then
+    if cat->>'status' is distinct from 'verified' or jsonb_array_length(cat->'items')=0 or jsonb_array_length(answers)<>jsonb_array_length(cat->'items') or nullif(observed,'') is null or coverage is null or jsonb_array_length(coverage->'photoIds')=0 then raise exception 'Boas condições exige checklist completo, data observada, cobertura declarada e ao menos uma foto vinculada.' using errcode='22023';end if;
+    if exists(select 1 from pi_gestao_private.records r where r.tenant_id=p_tenant and r.owner_id=own and r.kind='rti' and r.body->>'executionId'=e->>'id') then raise exception 'RTI desta execução permanece para gestão técnica; sua retirada não autoriza boas condições.' using errcode='22023';end if;
+   elsif outcome='treatment_required' and treatment_count=0 then raise exception 'Resultado com tratativa exige ao menos uma recomendação acionável do catálogo.' using errcode='22023';end if;
+   if p_action='execution.save' then patch:=patch||jsonb_build_object('outcome',outcome,'coverage',coverage);end if;
+  end if;
    kind:=case when i->>'type'='visual' then 'lvt' else 'document' end;
    patch:=patch||jsonb_build_object('deadlineAnchor',deadline_anchor);
    perform pi_gestao_private.ga_change(p_tenant,own,(e->>'id')::uuid,kind,(e->>'version')::bigint,patch,actor,'mesmo rascunho de execução salvo');

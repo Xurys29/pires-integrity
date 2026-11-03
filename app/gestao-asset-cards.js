@@ -47,20 +47,30 @@
     const confirmed = record.currentness === "confirmed_current" && ["aberta", "encerrada"].includes(record.status) &&
       validConfirmationDate(record.currentnessConfirmedAt) && !!nonempty(record.currentnessEvidence),
       currentness = confirmed ? "confirmed_current" : record.currentness === "historical" ? "historical" : "unknown",
+      // Follow-up is a workflow state. A late field entry may open a treatment
+      // without confirming that the physical condition is still current today.
+      followupOpen = record.originType === "field_recommendation" && record.status === "aberta" &&
+        (record.requiresTreatment === true || record.actionabilityStatus === "legacy_unclassified") &&
+        ["executionId", "inspectionId", "lvtItemId", "findingId"].every(key => !!nonempty(record[key])) &&
+        record.deadlineAnchor?.event === "inspection_performed" && validDate(record.deadlineAnchor.date) &&
+        record.deadlineAnchor.executionId === record.executionId && record.deadlineAnchor.inspectionId === record.inspectionId,
       sourceStatus = sourceValue(record.sourceStatus),
       sourceDate = sourceValue(record.sourceDate),
       open = confirmed && record.status === "aberta",
-      reportedOpen = !confirmed && (record.status === "aberta" ||
+      reportedOpen = !confirmed && !followupOpen && (record.status === "aberta" ||
         typeof sourceStatus === "string" && ["aberta", "aberto", "open"].includes(sourceStatus.trim().toLocaleLowerCase("pt-BR"))),
-      currentnessLabel = confirmed ? "Situação atual conforme confirmação registrada" : reportedOpen
+      currentnessLabel = confirmed ? "Situação atual conforme confirmação registrada" : followupOpen
+        ? "Tratativa de campo aberta para acompanhamento; atualidade física não confirmada"
+        : reportedOpen
         ? "Alerta RTI reportado na fonte; situação atual não confirmada"
         : "Histórico de RTI da fonte; situação atual não confirmada";
     return {
       currentness,
       open,
+      followupOpen,
       reportedOpen,
       currentnessLabel,
-      statusLabel: confirmed ? record.status === "aberta" ? "Aberta com confirmação atual" : record.status === "encerrada"
+      statusLabel: followupOpen && !confirmed ? "Aberta para acompanhamento; condição observada na inspeção" : confirmed ? record.status === "aberta" ? "Aberta com confirmação atual" : record.status === "encerrada"
         ? "Encerrada conforme confirmação registrada" : "Situação confirmada não reconhecida"
         : sourceStatus !== null ? String(sourceStatus) : record.status === "atualidade_desconhecida"
           ? "Situação da fonte não informada" : nonempty(record.status) || "Situação da fonte não informada",
@@ -117,8 +127,11 @@
     state = state || {};
     const id = nonempty(asset.id),
       history = records(state.rti).filter((item) => id && item?.assetId === id).map((item) => ({ ...item })),
-      items = history.filter((item) => describeRti(item).open),
+      items = history.filter((item) => describeRti(item).open || describeRti(item).followupOpen),
+      confirmedOpenItems = history.filter((item) => describeRti(item).open),
+      fieldFollowupItems = history.filter((item) => describeRti(item).followupOpen && !describeRti(item).open),
       unconfirmedItems = history.filter((item) => describeRti(item).currentness !== "confirmed_current"),
+      sourceUnconfirmedItems = unconfirmedItems.filter((item) => !describeRti(item).followupOpen),
       reportedItems = unconfirmedItems.filter((item) => describeRti(item).reportedOpen),
       classifications = records(state.classification).filter((item) => id && item?.assetId === id),
       latest = classifications.at(-1) || null,
@@ -157,12 +170,14 @@
         reportedOpen: reportedItems.length > 0,
         reportedItems,
         unconfirmedItems,
-        currentnessLabel: unconfirmedItems.length ? reportedItems.length
+        fieldFollowupItems,
+        currentnessLabel: fieldFollowupItems.length ? "Há tratativa de campo aberta para acompanhamento; atualidade física não confirmada" : unconfirmedItems.length ? reportedItems.length
           ? "Alerta RTI reportado na fonte; situação atual não confirmada"
           : "Histórico de RTI da fonte; situação atual não confirmada"
           : history.length ? "Situação atual conforme confirmação registrada" : "Nenhuma RTI vinculada",
-        label: [items.length ? `${items.length} RTI${items.length === 1 ? " aberta" : "s abertas"} com confirmação atual` : null,
-          unconfirmedItems.length ? `${unconfirmedItems.length} RTI${unconfirmedItems.length === 1 ? " de fonte com situação atual não confirmada" : "s de fonte com situação atual não confirmada"}` : null]
+        label: [confirmedOpenItems.length ? `${confirmedOpenItems.length} RTI${confirmedOpenItems.length === 1 ? " aberta" : "s abertas"} com confirmação atual` : null,
+          fieldFollowupItems.length ? `${fieldFollowupItems.length} RTI${fieldFollowupItems.length === 1 ? " de campo aberta" : "s de campo abertas"} para acompanhamento` : null,
+          sourceUnconfirmedItems.length ? `${sourceUnconfirmedItems.length} RTI${sourceUnconfirmedItems.length === 1 ? " de fonte com situação atual não confirmada" : "s de fonte com situação atual não confirmada"}` : null]
           .filter(Boolean).join(" · ") || (history.length ? "Sem RTI aberta conforme confirmação registrada" : "Nenhuma RTI vinculada"),
       },
       nr13: {

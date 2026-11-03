@@ -14,6 +14,8 @@ Os controles locais seguintes preparam composição explícita de checklist, ref
 
 O primeiro [protótipo local de desenho de linha](prototypes/line-drawing/README.md) é executado separadamente com `npm run start:drawing`. Malha, figuras e marcações são esquemáticas, sem escala física ou certificação; o desenho permanece levantamento pendente de revisão e não está integrado à Gestão.
 
+Os caminhos de boas condições com cobertura/fotos e de tratativa com RTI e referência de campo estão preparados na [revisão de resultados e RTI](INSPECAO-RESULTADOS-RTI-20261103.md). Esse documento distingue validação local, integração ainda pendente e o plano de migração/acesso/publicação; o SQL continua candidato não aplicado em produção.
+
 ## Executar e testar na nuvem
 
 Node.js 24 ou superior. Para os importadores Python e seu teste, Python 3.12 com as versões de `requirements-cloud.txt`.

@@ -33,8 +33,8 @@
       parent.append(list);
     }
     function input(parent, name, label, type = "text", value) {
-      const l = el("label", label), n = el(type === "select" ? "select" : "input"); n.name = name;
-      if (type !== "select") n.type = type;
+      const l = el("label", label), n = el(type === "select" ? "select" : type === "textarea" ? "textarea" : "input"); n.name = name;
+      if (type !== "select" && type !== "textarea") n.type = type;
       if (value !== undefined && value !== null) n.value = value;
       l.append(n); parent.append(l); return n;
     }
@@ -196,7 +196,7 @@
       else { note(fields, "O preenchimento desta modalidade ainda exige conferência da gestão técnica."); getValues = () => ({}); }
       const actions = section(form, "3. Salvar e encaminhar"), feedback = el("p", undefined, "inspection-feedback"); feedback.setAttribute("role", "status");
       if (execution.status === "em_revisao") note(actions, "Inspeção enviada para revisão técnica. A emissão e as assinaturas continuam pendentes.");
-      else note(actions, "Salvar preserva o rascunho nesta atividade. Enviar para revisão não emite relatório e não encerra RTIs.");
+      else note(actions, "Salvar preserva o rascunho nesta atividade. Uma recomendação de tratativa abre a RTI vinculada automaticamente. Enviar para revisão não emite relatório e não encerra RTIs.");
       const save = el("button", "Salvar rascunho"), submit = el("button", "Enviar para revisão"); save.type = submit.type = "submit"; save.dataset.action = "save"; submit.dataset.action = "submit"; submit.className = "inspection-primary";
       save.disabled = submit.disabled = !editable;
       if (inspection.type === "visual" && (catalog.status !== "verified" || !catalog.items?.length)) submit.disabled = true;
@@ -207,12 +207,14 @@
         let refreshing = false;
         feedback.textContent = send ? "Salvando e enviando para revisão…" : "Salvando rascunho…";
         try {
-          let saved = await write("execution-save", { inspectionId: inspection.id, expectedVersion: currentExecution.version, observedOn: date.value || null, ...getValues() });
+          const values = getValues();
+          if (["good_condition", "treatment_required"].includes(values.outcome) && !date.value) throw Error("Informe a data em que a inspeção foi realizada. Ela é o marco das recomendações.");
+          let saved = await write("execution-save", { inspectionId: inspection.id, expectedVersion: currentExecution.version, observedOn: date.value || null, ...values });
           currentExecution = saved.execution;
           if (contextKey() !== key || token !== generation) return;
           if (send) { saved = await write("execution-submit", { inspectionId: inspection.id, expectedVersion: currentExecution.version }); currentExecution = saved.execution; }
           if (contextKey() !== key || token !== generation) return;
-          outcomes.set(inspection.id, send ? "Enviada para revisão técnica. O registro da inspeção foi preservado." : saved.execution.technicalReviewRequired ? "Rascunho salvo. A pendência está disponível à gestão técnica na fila de inspeções." : "Rascunho salvo. Continue pelo mesmo registro da atividade.");
+          outcomes.set(inspection.id, send ? "Enviada para revisão técnica. O registro da inspeção foi preservado." : saved.execution.technicalReviewRequired ? "Rascunho salvo. A pendência está disponível à gestão técnica na fila de inspeções." : detail.outcomeWorkflowVersion === 1 && saved.execution.outcome === "good_condition" ? "Declaração de boas condições e cobertura salva com suas fotografias. O relatório e a revisão técnica continuam pendentes." : detail.outcomeWorkflowVersion === 1 && saved.execution.outcome === "treatment_required" ? "Tratativa salva com a RTI vinculada para acompanhamento na Gestão de RTI. O prazo depende da política aprovada e da data da inspeção." : "Rascunho salvo. Continue pelo mesmo registro da atividade.");
           refreshing = true;
           await options.onInspectionRefresh?.();
         } catch (error) { feedback.textContent = refreshing ? (currentExecution.status === "em_revisao" ? "O envio para revisão foi confirmado. A atualização da tela falhou; recarregue a consulta." : "O rascunho foi salvo. A atualização da tela falhou; recarregue a consulta.") : error.message; }
@@ -220,13 +222,15 @@
       };
     }
     function visualItems(parent, detail, editable, guard) {
-      const catalog = detail.catalog || {}, execution = detail.execution, controls = [];
+      const catalog = detail.catalog || {}, execution = detail.execution, controls = [], workflowEnabled = detail.outcomeWorkflowVersion === 1;
+      let refreshOutcome = () => {};
       if (catalog.status !== "verified" || !catalog.items?.length) {
         note(parent, catalog.reason || "O catálogo de LVT com fontes conferidas ainda não está disponível.", "inspection-catalog-pending");
         note(parent, "A gestão técnica deve conferir o modelo e as frases dos originais antes de liberar o checklist. Nenhum item será marcado como bom por ausência de informação.");
         return () => ({ answers: [] });
       }
       note(parent, sourceCaption(catalog.source), "inspection-source");
+      if (!workflowEnabled) note(parent, "Este backend ainda não habilitou os dois caminhos de resultado; conferência genérica somente. Não será declarada boa condição por ausência de recomendação.", "inspection-technical-pending inspection-outcome-unavailable");
       for (const item of catalog.items) {
         const prior = execution.answers?.find((answer) => answer.catalogItemId === item.id) || {}, shell = execution.items?.find((entry) => entry.catalogItemId === item.id),
           box = section(parent, `${item.itemKey} · ${item.component}`, "inspection-item"); box.dataset.itemKey = item.itemKey; box.dataset.catalogItemId = item.id;
@@ -237,7 +241,15 @@
         const recommendationOptions = [];
         for (const value of item.recommendations || []) recommendationOptions.push({ value, option: choice(recommendation, value.id, value.text) }); recommendation.value = prior.recommendationId || "";
         condition.disabled = recommendation.disabled = !editable;
-        const provenance = note(box, "", "inspection-source"), pendingNote = note(box, "", "inspection-technical-pending"), recommendationNote = note(box, "", "inspection-note");
+        const point = workflowEnabled ? input(box, "pointLabel", "Ponto de campo · rótulo declarado", "text", prior.pointLabel || "") : el("input");
+        if (!workflowEnabled) point.value = prior.pointLabel || "";
+        point.maxLength = 200; point.disabled = !editable;
+        point.placeholder = "Identifique o ponto observado, sem localização presumida";
+        const pointRows = (detail.points || []).filter((entry) => entry.lvtItemId === shell?.lvtItemId && entry.inspectionId === detail.inspection.id && entry.executionId === execution.id),
+          pointRecord = pointRows.length === 1 && (!prior.pointId || pointRows[0].id === prior.pointId) ? pointRows[0] : null;
+        if (!point.value && pointRecord?.label) point.value = pointRecord.label;
+        if (workflowEnabled) note(box, pointRecord ? "Referência de campo salva: " + pointRecord.label + ". A posição no desenho ainda está pendente de vínculo ao documento." : "O rótulo registra uma referência de campo. A posição no isométrico permanece pendente de conferência e vínculo ao documento.", "inspection-source inspection-point-reference");
+        const provenance = note(box, "", "inspection-source"), pendingNote = note(box, "", "inspection-technical-pending"), recommendationNote = note(box, "", "inspection-note"), actionNote = note(box, "", "inspection-action-note");
         const update = () => {
           const unknown = condition.value === "__not_covered__";
           recommendation.disabled = !editable || unknown || !condition.value;
@@ -247,9 +259,15 @@
           else recommendationNote.textContent = "";
           pendingNote.textContent = unknown ? "Ao salvar, este item fica pendente para a gestão técnica. Nenhuma condição será presumida." : "";
           provenance.textContent = [sourceCaption(item.conditions?.find((x) => x.id === condition.value)?.source), sourceCaption(item.recommendations?.find((x) => x.id === recommendation.value)?.source)].filter(Boolean).join(" · ");
+          const selectedRecommendation = item.recommendations?.find((entry) => entry.id === recommendation.value);
+          actionNote.textContent = !workflowEnabled && typeof selectedRecommendation?.requiresTreatment === "boolean" ? "Esta escolha exige o backend atualizado dos dois caminhos de resultado. A gravação desta seleção não está habilitada nesta versão." : selectedRecommendation?.requiresTreatment === true ? "Esta escolha exige tratativa: informe o ponto e anexe foto. Ao salvar, a mesma RTI será aberta ou atualizada automaticamente, sem duplicação." : selectedRecommendation?.requiresTreatment === false ? "Esta escolha documental foi classificada sem tratativa; ela não abre uma nova RTI." : workflowEnabled && selectedRecommendation ? "Esta recomendação precisa de conferência da gestão técnica para definir a tratativa. Mantenha o rascunho pendente; nenhum prazo será presumido." : "";
+          point.setAttribute("aria-required", workflowEnabled && selectedRecommendation?.requiresTreatment === true ? "true" : "false");
+          refreshOutcome();
         };
         condition.onchange = update; recommendation.onchange = update; update();
-        const photoIds = new Set([...(prior.photoIds || []), ...records("photo").filter((p) => p.lvtItemId === shell?.lvtItemId).map((p) => p.id)]), photoCount = note(box, photoIds.size + " foto(s) vinculada(s) a este item");
+        const ownPhoto = (p) => p.lvtItemId === shell?.lvtItemId && p.assetId === detail.inspection.assetId && p.inspectionId === detail.inspection.id && p.lvtId === execution.id && p.contractId === detail.inspection.contractId && p.systemId === detail.inspection.systemId && p.campaignId === detail.inspection.campaignId && p.module === detail.inspection.module,
+          photoRecords = new Map(records("photo").filter(ownPhoto).map((p) => [p.id, p])),
+          photoIds = new Set([...(prior.photoIds || []), ...records("photo").filter((p) => p.lvtItemId === shell?.lvtItemId).map((p) => p.id)]), photoCount = note(box, photoIds.size + " foto(s) vinculada(s) a este item");
         if (typeof options.onPhoto === "function") for (const photo of records("photo").filter((p) => p.lvtItemId === shell?.lvtItemId)) {
           const image = el("img"); image.alt = photo.caption || "Fotografia do item " + item.itemKey; image.className = "inspection-item-photo"; image.hidden = true;
           const preview = button(box, "Ver fotografia do item", async () => { preview.disabled = true; try { const source = await options.onPhoto(photo); if (contextKey() !== guard.key || guard.token !== generation) return; image.src = source; image.hidden = false; } catch (error) { fail(box, error); } finally { if (preview.isConnected) preview.disabled = false; } }, "secondary"); box.append(image);
@@ -267,16 +285,99 @@
               if (contextKey() !== guard.key || guard.token !== generation) return;
               const source = photoUploads.get(file), saved = await write("photos", { assetId: detail.inspection.assetId, lvtItemId: shell.lvtItemId, sourceId: source.id, locator: { section: "Item " + item.itemKey }, caption: "Item " + item.itemKey });
               photoIds.add(saved.id);
+              if (ownPhoto(saved)) photoRecords.set(saved.id, saved);
             }
-            photoCount.textContent = photoIds.size + " foto(s) vinculada(s) a este item"; files.value = ""; photoFeedback.textContent = "Fotos vinculadas. Salve o rascunho para registrar a seleção completa do item.";
+            photoCount.textContent = photoIds.size + " foto(s) vinculada(s) a este item"; files.value = ""; photoFeedback.textContent = workflowEnabled ? "Fotos vinculadas. Selecione abaixo as que documentam a cobertura e salve o rascunho." : "Fotos vinculadas. Salve o rascunho para registrar a seleção completa do item."; refreshOutcome(true);
           } catch (error) { photoFeedback.textContent = error.message; } finally { if (upload.isConnected) upload.disabled = !editable || !shell?.lvtItemId; }
         }, "secondary"); upload.disabled = !editable || !shell?.lvtItemId;
-        controls.push({ item, condition, recommendation, photoIds });
+        controls.push({ item, condition, recommendation, point, photoIds, photoRecords });
       }
-      return () => ({ answers: controls.map(({ item, condition, recommendation, photoIds }) => {
-        if (recommendation.value && !photoIds.size) throw Error("Item " + item.itemKey + ": anexe ao menos uma fotografia antes de salvar a recomendação.");
-        return { catalogItemId: item.id, itemKey: item.itemKey, conditionId: condition.value === "__not_covered__" ? null : condition.value || null, recommendationId: recommendation.value || null, notCovered: condition.value === "__not_covered__", photoIds: [...photoIds] };
+      const getOutcome = workflowEnabled ? visualOutcome(parent, detail, controls, editable) : () => ({}); refreshOutcome = getOutcome.refresh || (() => {});
+      return () => ({ ...getOutcome(), answers: controls.map(({ item, condition, recommendation, point, photoIds }) => {
+        const selectedRecommendation = item.recommendations?.find((entry) => entry.id === recommendation.value), pointLabel = point.value.trim();
+        if (!workflowEnabled && typeof selectedRecommendation?.requiresTreatment === "boolean") throw Error("Este backend ainda não habilitou os dois caminhos de resultado. A seleção classificada exige atualização antes de gravar.");
+        if (workflowEnabled && (pointLabel.length > 200 || /[\u0000-\u001f\u007f]/.test(pointLabel))) throw Error("Item " + item.itemKey + ": confirme um rótulo de ponto de até 200 caracteres.");
+        if (workflowEnabled && selectedRecommendation?.requiresTreatment === true && !pointLabel) throw Error("Item " + item.itemKey + ": informe o ponto de campo da tratativa.");
+        if (recommendation.value && (!workflowEnabled || selectedRecommendation?.requiresTreatment !== false) && !photoIds.size) throw Error("Item " + item.itemKey + ": anexe ao menos uma fotografia antes de salvar a recomendação de tratativa.");
+        return { catalogItemId: item.id, itemKey: item.itemKey, conditionId: condition.value === "__not_covered__" ? null : condition.value || null, recommendationId: recommendation.value || null, notCovered: condition.value === "__not_covered__", photoIds: [...photoIds], ...(workflowEnabled ? { pointLabel: pointLabel || null } : {}) };
       }) });
+    }
+    function visualOutcome(parent, detail, controls, editable) {
+      const execution = detail.execution, box = section(parent, "Resultado e cobertura da inspeção", "inspection-outcome"),
+        outcome = input(box, "outcome", "Resultado declarado desta execução", "select");
+      choice(outcome, "pending", "Ainda sem conclusão");
+      const goodChoice = choice(outcome, "good_condition", "Boas condições no escopo declarado"), treatmentChoice = choice(outcome, "treatment_required", "Há recomendação de tratativa · abrir RTI");
+      choice(outcome, "technical_review", "Encaminhar para gestão técnica");
+      outcome.value = ["pending", "good_condition", "treatment_required", "technical_review"].includes(execution.outcome) ? execution.outcome : "pending";
+      outcome.disabled = !editable;
+      const resultNote = note(box, "", "inspection-outcome-status"); resultNote.setAttribute("role", "status");
+      note(box, "Ausência de recomendação ou de RTI não comprova boas condições. A declaração depende das respostas e da classificação conferida no catálogo.");
+      const savedCoverage = execution.coverage && typeof execution.coverage === "object" ? execution.coverage : {},
+        extent = input(box, "coverageExtent", "Cobertura realmente inspecionada", "select");
+      choice(extent, "", "Selecione a cobertura observada"); choice(extent, "declared_section", "Trecho declarado da linha"); choice(extent, "declared_entire_line", "Toda a linha · declaração do inspetor"); extent.value = savedCoverage.extent || ""; extent.disabled = !editable;
+      const description = input(box, "coverageDescription", "Trecho, limites e restrições da cobertura · declaração", "textarea", savedCoverage.description || "");
+      description.maxLength = 2000; description.rows = 3; description.placeholder = "Identifique o início, o fim e as limitações do trecho realmente inspecionado"; description.disabled = !editable;
+      const coverageNote = note(box, "", "inspection-coverage-note");
+      note(box, "Uma foto parcial não comprova a linha inteira. Se necessário, use várias fotos e declare somente o trecho realmente inspecionado.");
+      const photoList = el("fieldset", undefined, "inspection-coverage-photos"), legend = el("legend", "Fotografias que documentam esta cobertura"); photoList.append(legend); box.append(photoList);
+      const selectedPhotos = new Set(Array.isArray(savedCoverage.photoIds) ? savedCoverage.photoIds : []), photoSummary = note(box, "", "inspection-coverage-photo-summary"),
+        emptyPhotos = el("p", "Anexe fotos aos itens e atualize a consulta para conferir seus vínculos, se necessário.", "inspection-note");
+      note(box, "O prazo da tratativa depende da matriz Pires aprovada. Enquanto a política estiver pendente, a Gestão de RTI mantém prazo manual justificado, contado a partir da inspeção realizada.");
+      const facts = () => controls.map((control) => ({ ...control,
+        selectedCondition: control.item.conditions?.find((entry) => entry.id === control.condition.value),
+        selectedRecommendation: control.item.recommendations?.find((entry) => entry.id === control.recommendation.value) }));
+      const ownRtis = () => records("rti").filter((rti) => rti.executionId === execution.id || rti.lvtId === execution.id);
+      const photoPool = () => {
+        const pool = new Map();
+        for (const control of controls) for (const [id, photo] of control.photoRecords) if (control.photoIds.has(id)) pool.set(id, { photo, item: control.item });
+        return pool;
+      };
+      function refreshPhotoList() {
+        for (const node of Array.from(photoList.children)) if (node !== legend) node.remove();
+        const pool = photoPool(), ids = [...new Set([...pool.keys(), ...selectedPhotos])]; let index = 0;
+        for (const id of ids) {
+          const entry = pool.get(id), label = el("label", undefined, "inspection-photo-choice"), checkbox = el("input"),
+            caption = entry ? "Item " + entry.item.itemKey + " · foto " + (++index) + (entry.photo.caption ? " · " + entry.photo.caption : "") : "Foto da cobertura salva · vínculo a conferir";
+          checkbox.type = "checkbox"; checkbox.name = "coveragePhotoIds"; checkbox.value = id; checkbox.checked = selectedPhotos.has(id); checkbox.disabled = !editable;
+          checkbox.onchange = () => { if (checkbox.checked) selectedPhotos.add(id); else selectedPhotos.delete(id); refresh(); };
+          label.append(checkbox, el("span", caption)); if (!entry) label.classList.add("inspection-photo-unavailable"); photoList.append(label);
+        }
+        if (!ids.length) photoList.append(emptyPhotos);
+      }
+      function refresh(photosChanged = false) {
+        const values = facts(), classified = values.every((entry) => !entry.selectedRecommendation || typeof entry.selectedRecommendation.requiresTreatment === "boolean"),
+          good = values.length > 0 && values.every((entry) => entry.condition.value !== "__not_covered__" && entry.selectedCondition?.supportsGoodCondition === true && (!entry.selectedRecommendation || entry.selectedRecommendation.requiresTreatment === false)),
+          treatment = values.some((entry) => entry.selectedRecommendation?.requiresTreatment === true),
+          conditionReview = values.some((entry) => entry.selectedCondition && typeof entry.selectedCondition.supportsGoodCondition !== "boolean");
+        goodChoice.disabled = !editable || !good || ownRtis().length > 0; treatmentChoice.disabled = !editable || !classified || !treatment;
+        if (ownRtis().length) resultNote.textContent = "Há RTI preservada desta execução. Uma retirada de recomendação não a apaga nem permite declarar boas condições automaticamente; encaminhe à gestão técnica.";
+        else if (!classified) resultNote.textContent = "Uma recomendação ainda precisa de conferência da gestão técnica para definir a tratativa. Mantenha o rascunho pendente ou encaminhe à gestão técnica.";
+        else if (conditionReview && outcome.value !== "treatment_required") resultNote.textContent = "As condições selecionadas ainda precisam de conferência da gestão técnica para liberar uma declaração de boas condições.";
+        else if (!good && outcome.value === "good_condition") resultNote.textContent = "Boas condições exige resposta de todos os itens com suporte explícito no catálogo, sem condição não contemplada ou tratativa.";
+        else if (outcome.value === "good_condition") resultNote.textContent = "A declaração de boas condições exige cobertura explícita e ao menos uma fotografia vinculada. Revisão e emissão técnicas permanecem pendentes.";
+        else if (outcome.value === "treatment_required") resultNote.textContent = "Cada recomendação de tratativa abre ou atualiza a RTI vinculada ao item, ponto de campo, fotos, TAG e inspeção. Sem vencimento automático presumido.";
+        else resultNote.textContent = "Nenhum resultado de boas condições foi presumido. Selecione o resultado somente após conferir os itens.";
+        coverageNote.textContent = extent.value === "declared_entire_line" ? "Você está declarando cobertura de toda a linha. Essa escolha não é inferida da quantidade ou aparência das fotos; confirme os limites e as evidências." : extent.value === "declared_section" ? "O relatório deve identificar somente o trecho declarado, com suas limitações e fotografias." : "Cobertura ainda não declarada; uma fotografia não preenche este campo automaticamente.";
+        photoSummary.textContent = selectedPhotos.size ? selectedPhotos.size + " foto(s) selecionada(s) explicitamente para a cobertura." : "Nenhuma fotografia selecionada para a cobertura.";
+        if (photosChanged) refreshPhotoList();
+      }
+      outcome.onchange = extent.onchange = () => refresh();
+      const getValues = () => {
+        const values = facts(), selectedOutcome = outcome.value, selectedIds = [...selectedPhotos], pool = photoPool(),
+          hasCoverage = Boolean(extent.value || description.value.trim() || selectedIds.length);
+        if (selectedIds.some((id) => !pool.has(id))) throw Error("Uma fotografia da cobertura não está conferida nesta execução. Atualize os vínculos ou retire explicitamente essa seleção.");
+        if (hasCoverage && (!["declared_section", "declared_entire_line"].includes(extent.value) || !description.value.trim())) throw Error("Declare a cobertura e descreva o trecho, os limites e as restrições realmente inspecionados.");
+        if (description.value.trim().length > 2000 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(description.value)) throw Error("A descrição da cobertura deve ter até 2000 caracteres válidos.");
+        if (["good_condition", "treatment_required"].includes(selectedOutcome) && values.some((entry) => entry.selectedRecommendation && typeof entry.selectedRecommendation.requiresTreatment !== "boolean")) throw Error("A classificação de tratativa das recomendações selecionadas precisa ser conferida no catálogo.");
+        if (selectedOutcome === "good_condition") {
+          if (!values.length || values.some((entry) => entry.condition.value === "__not_covered__" || entry.selectedCondition?.supportsGoodCondition !== true || entry.selectedRecommendation && entry.selectedRecommendation.requiresTreatment !== false)) throw Error("Boas condições exige todos os itens respondidos com suporte explícito do catálogo e sem tratativa.");
+          if (ownRtis().length) throw Error("A RTI desta execução permanece preservada para revisão. Ela não pode ser apagada para declarar boas condições.");
+          if (!hasCoverage || !selectedIds.length) throw Error("Boas condições exige cobertura declarada e ao menos uma fotografia vinculada. Use várias fotos quando necessário.");
+        }
+        if (selectedOutcome === "treatment_required" && !values.some((entry) => entry.selectedRecommendation?.requiresTreatment === true)) throw Error("Selecione uma recomendação explicitamente classificada como tratativa no catálogo.");
+        return { outcome: selectedOutcome, coverage: hasCoverage ? { extent: extent.value, description: description.value.trim(), photoIds: selectedIds } : null };
+      };
+      getValues.refresh = refresh; refresh(true); return getValues;
     }
     function thickness(parent, detail, editable) {
       const instrument = input(parent, "instrument", "Instrumento utilizado", "text", detail.execution.instrument); instrument.disabled = !editable;

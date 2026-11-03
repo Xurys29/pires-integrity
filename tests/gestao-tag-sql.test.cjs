@@ -95,3 +95,44 @@ test('tag SQL integration: actual stale SQL detail/snapshot are rejected and thi
  const omitted=f.input(current,snapshot);delete omitted.scope.executionId;await assert.rejects(Report.freeze(omitted),/Execução visual não encontrado/);
  const noAutomaticLatest=await Report.freeze(f.input(current,freshSnapshot));assert.equal(noAutomaticLatest.content.execution.id,current.execution.id);
 });
+
+test('outcome integration: good condition keeps declared partial coverage and actual embedded photos without RTI or planning changes',async t=>{
+ const f=await fixture(t);f.items[0].conditions[0].supportsGoodCondition=true;f.items[0].recommendations[0].requiresTreatment=false;f.items[0].recommendations[0].text='Sem recomendações - SOMENTE FIXTURE';
+ await f.db.query('update pi_gestao_private.inspection_catalogs set items=$1::jsonb where tenant_id=$2 and owner_id=$3 and id=$4',[JSON.stringify(f.items),f.ids.tenantA,f.ownerId,f.catalogId]);
+ let detail=await f.start();const photos=[];
+ for(const label of ['TRECHO-A','TRECHO-B'])photos.push(await f.exec('photos.create',{assetId:f.asset.id,lvtItemId:detail.execution.items[0].lvtItemId,sourceId:f.photoOriginal.id,locator:{section:'COBERTURA SOMENTE FIXTURE '+label},caption:'FOTO SOMENTE FIXTURE '+label}));
+ const answer={catalogItemId:f.items[0].id,itemKey:f.items[0].itemKey,conditionId:'condition-tag-sql',recommendationId:'recommendation-tag-sql',notCovered:false,photoIds:photos.map(p=>p.id)},coverage={extent:'declared_section',description:'TRECHO A-B INSPECIONADO SOMENTE FIXTURE; restante não declarado como inspecionado',photoIds:photos.map(p=>p.id)};
+ detail=await f.exec('execution.save',{inspectionId:detail.inspection.id,expectedVersion:detail.execution.version,requestId:randomUUID(),observedOn:f.observed,answers:[answer],outcome:'good_condition',coverage});
+ const snapshot=await f.report();assert.equal(snapshot.rtis.length,0);assert.equal(snapshot.findings.length,0);assert.equal(detail.execution.outcome,'good_condition');
+ const beforePlanning=(await f.db.query("select id,body,version from pi_gestao_private.records where tenant_id=$1 and owner_id=$2 and kind in ('campaign','inspection') order by id",[f.ids.tenantA,f.ownerId])).rows;
+ const input=f.input(detail,snapshot),record=await Report.freeze(input),images=Object.fromEntries(photos.map(p=>[p.id,{bytes:imageBytes,mime:'image/png'}]));
+ await assert.rejects(Report.createPdf(record,{[photos[0].id]:images[photos[0].id]}, {},jsPDF),/fotos|imagem|cobertura/i);
+ const pdf=await Report.createPdf(record,images,{},jsPDF);assert.equal(pdf.metadata.canIssue,false);assert.equal(pdf.metadata.outcome,'good_condition');assert.deepEqual([...pdf.metadata.embeddedPhotoIds].sort(),photos.map(p=>p.id).sort());assert.equal(pdf.metadata.coverage.extent,'declared_section');assert.equal(pdf.metadata.coverage.description,coverage.description);
+ const Packet=require('../lib/inspection-review-packet.cjs'),packet=await Packet.prepareReviewPacket({tagInput:input,drawingSnapshots:[]});assert.deepEqual(await Packet.verifyReviewPacket(packet),packet);assert.equal(packet.canIssue,false);
+ assert.deepEqual((await f.db.query("select id,body,version from pi_gestao_private.records where tenant_id=$1 and owner_id=$2 and kind in ('campaign','inspection') order by id",[f.ids.tenantA,f.ownerId])).rows,beforePlanning);
+ const finalState=await f.exec('state.get');assert.equal(finalState.rti.length,0);assert.deepEqual(finalState.campaign.find(c=>c.id===f.c1.campaign.id).status,'rascunho');
+});
+
+test('outcome integration: treatment point/RTI persist canonically through SQL, frozen TAG, packet verification and replay',async t=>{
+ const f=await fixture(t);f.items[0].conditions[0].supportsGoodCondition=false;f.items[0].recommendations[0].requiresTreatment=true;
+ await f.db.query('update pi_gestao_private.inspection_catalogs set items=$1::jsonb where tenant_id=$2 and owner_id=$3 and id=$4',[JSON.stringify(f.items),f.ids.tenantA,f.ownerId,f.catalogId]);
+ let detail=await f.start();const photo=await f.exec('photos.create',{assetId:f.asset.id,lvtItemId:detail.execution.items[0].lvtItemId,sourceId:f.photoOriginal.id,locator:{section:'PONTO SOMENTE FIXTURE'},caption:'FOTO SOMENTE FIXTURE'});
+ const answer={catalogItemId:f.items[0].id,itemKey:f.items[0].itemKey,conditionId:'condition-tag-sql',recommendationId:'recommendation-tag-sql',notCovered:false,photoIds:[photo.id],pointLabel:'MARCA DE CAMPO SOMENTE FIXTURE'},payload={inspectionId:detail.inspection.id,expectedVersion:detail.execution.version,requestId:randomUUID(),observedOn:f.observed,answers:[answer],outcome:'treatment_required',coverage:{extent:'declared_section',description:'TRECHO DO PONTO SOMENTE FIXTURE',photoIds:[photo.id]}};
+ detail=await f.exec('execution.save',payload);const replay=await f.exec('execution.save',payload);assert.equal(replay.execution.id,detail.execution.id);
+ const snapshot=await f.report(),rti=snapshot.rtis.find(r=>r.executionId===detail.execution.id),point=detail.points.find(p=>p.id===rti.pointId);assert.ok(point);assert.equal(point.recordClass,'field_point_reference');assert.equal(point.label,answer.pointLabel);assert.equal(point.lvtItemId,detail.execution.items[0].lvtItemId);assert.deepEqual(point.photoIds,[photo.id]);assert.equal(point.drawingReference,null);assert.equal(point.locationStatus,'pending_drawing_reference');
+ assert.equal(rti.inspectionId,detail.inspection.id);assert.equal(rti.status,'aberta');assert.equal(rti.currentness,'unknown');assert.equal(rti.due,undefined);assert.equal(rti.deadlineAnchor.date,f.observed);assert.equal(require('../app/gestao-asset-cards.js').describeRti(rti).followupOpen,true);
+ const input=f.input(detail,snapshot),record=await Report.freeze(input);assert.deepEqual(record.content.points.map(p=>p.id),[point.id]);assert.equal(record.content.rtis[0].pointId,point.id);
+ const pdf=await Report.createPdf(record,{[photo.id]:{bytes:imageBytes,mime:'image/png'}},{},jsPDF);assert.equal(pdf.metadata.canIssue,false);assert.equal(pdf.metadata.pointReferences[0].id,point.id);
+ const Packet=require('../lib/inspection-review-packet.cjs'),packet=await Packet.prepareReviewPacket({tagInput:input,drawingSnapshots:[]});assert.deepEqual(await Packet.verifyReviewPacket(packet),packet);
+ const state=await f.exec('state.get');assert.equal(state.rti.filter(r=>r.executionId===detail.execution.id).length,1);assert.equal(state.document.filter(d=>d.recordClass==='field_point_reference'&&d.executionId===detail.execution.id).length,1);assert.equal(state.rti.find(r=>r.id===rti.id).status,'aberta');
+ const bad=JSON.parse(JSON.stringify(input));bad.detail.points[0].label='OUTRO PONTO NÃO SALVO';await assert.rejects(Report.freeze(bad),/ponto|campo|canôn|diverge/i);
+ // Withdrawing a recommendation preserves the original finding/photo evidence
+ // while the current field reference may acquire another label/photo/version.
+ const replacementPhoto=await f.exec('photos.create',{assetId:f.asset.id,lvtItemId:detail.execution.items[0].lvtItemId,sourceId:f.photoOriginal.id,locator:{section:'REVISÃO SOMENTE FIXTURE'},caption:'FOTO POSTERIOR SOMENTE FIXTURE'});
+ const withdrawn=await f.exec('execution.save',{inspectionId:detail.inspection.id,expectedVersion:detail.execution.version,requestId:randomUUID(),observedOn:f.observed,answers:[{...answer,recommendationId:null,pointLabel:'REFERÊNCIA CORRIGIDA SOMENTE FIXTURE',photoIds:[replacementPhoto.id]}],outcome:'technical_review',coverage:null});
+ const withdrawnSnapshot=await f.report(),retainedRti=withdrawnSnapshot.rtis.find(r=>r.id===rti.id),retainedFinding=withdrawnSnapshot.findings.find(r=>r.id===rti.findingId);
+ assert.equal(retainedRti.recommendationWithdrawn,true);assert.equal(retainedRti.status,'aberta');assert.deepEqual(retainedRti.photoIds,[photo.id]);assert.deepEqual(retainedFinding.photoIds,[photo.id]);assert.equal(retainedFinding.pointVersion,withdrawn.points[0].version);assert.ok(withdrawn.points[0].version>point.version);assert.deepEqual(withdrawn.points[0].photoIds,[replacementPhoto.id]);
+ const withdrawnInput=f.input(withdrawn,withdrawnSnapshot),withdrawnRecord=await Report.freeze(withdrawnInput),withdrawnPdf=await Report.createPdf(withdrawnRecord,{[photo.id]:{bytes:imageBytes,mime:'image/png'},[replacementPhoto.id]:{bytes:imageBytes,mime:'image/png'}},{},jsPDF);
+ assert.equal(withdrawnPdf.metadata.canIssue,false);assert.equal(withdrawnRecord.content.rtis[0].id,rti.id);assert.equal(withdrawnRecord.content.rtis[0].recommendationWithdrawn,true);
+ const withdrawnPacket=await Packet.prepareReviewPacket({tagInput:withdrawnInput,drawingSnapshots:[]});assert.deepEqual(await Packet.verifyReviewPacket(withdrawnPacket),withdrawnPacket);
+});
