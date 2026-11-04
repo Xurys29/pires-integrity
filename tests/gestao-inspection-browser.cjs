@@ -119,9 +119,14 @@ async function fixturePage(browser,base,options={}) {
     ? {id:null,status:"unavailable",items:[],reason:"Catálogo de LVT com fonte conferida ainda não disponível"}
     : clone(verifiedCatalog);
   const professionals = [
-    {id:ids.professional,name:"INSPETOR FIXTURE EXISTENTE",registrationState:"active",accessLinked:true},
-    {id:ids.otherProfessional,name:"OUTRO PROFISSIONAL FIXTURE EXISTENTE",registrationState:"active",accessLinked:true}
+    {id:ids.professional,name:"INSPETOR FIXTURE EXISTENTE",functionalRole:"inspector",registrationState:"active",accessLinked:true},
+    {id:ids.otherProfessional,name:"OUTRO PROFISSIONAL FIXTURE EXISTENTE",functionalRole:"inspector",registrationState:"active",accessLinked:false},
+    {id:id(50),name:"ENGENHEIRO FIXTURE EXISTENTE",functionalRole:"engineer_reviewer",registrationState:"active",accessLinked:true},
+    {id:id(51),name:"OUTRO PAPEL SOMENTE FIXTURE",functionalRole:"admin",registrationState:"active",accessLinked:true},
+    {id:id(52),name:"PAPEL NÃO CONFIRMADO SOMENTE FIXTURE",registrationState:"active",accessLinked:true}
   ];
+  if(options.historicalEngineer){state.inspection[0].assigneeProfessionalId=id(50);state.inspection[0].assigneeName=professionals[2].name;}
+  if(options.omitFunctionalRoles)for(const professional of professionals)delete professional.functionalRole;
   const inspection = inspectionId => state.inspection.find(record=>record.id===inspectionId);
   const assigned = record => record && record.assigneeProfessionalId === ids.professional && record.id !== deniedInspection;
   const scopedState = inspectionId => {
@@ -233,6 +238,7 @@ async function fixturePage(browser,base,options={}) {
     if(operation==="execution-assign") {
       if(body.expectedVersion!==record.version)return json({error:"Registro alterado",code:"version_conflict"},409);
       const professional=professionals.find(person=>person.id===body.professionalId);
+      if(professional&&professional.functionalRole!=="inspector")return json({error:"Atribuição exige papel funcional de inspetor",code:"invalid_data"},400);
       record.assigneeProfessionalId=professional?.id||null;record.assigneeName=professional?.name||null;record.version++;
     } else if(operation==="execution-start") {
       if(record.assigneeProfessionalId!==ids.professional)return json({error:"Inspeção não atribuída ao usuário atual",code:"access_denied"},403);
@@ -318,6 +324,9 @@ async function main() {
     await card.waitFor();
     const countBefore=f.professionals.length;
     const assignment=card.locator('form[data-operation="execution-assign"]');
+    assert.deepEqual(await assignment.locator('option:not([value=""]):not(:disabled)').evaluateAll(nodes=>nodes.map(node=>node.value)),[ids.professional,ids.otherProfessional]);
+    for(const excluded of[id(50),id(51),id(52)])assert.equal(await assignment.locator('option[value="'+excluded+'"]').count(),0);
+    assert.match(await assignment.locator('option[value="'+ids.otherProfessional+'"]').innerText(),/acesso não vinculado/);
     await assignment.locator('[name="professionalId"]').selectOption(ids.otherProfessional);
     let assignmentReload=page.waitForResponse(response=>response.request().method()==="GET"&&response.url()===API+`companies/${ids.owner}/execution`);
     await assignment.getByRole("button",{name:"Salvar atribuição",exact:true}).click();
@@ -334,6 +343,19 @@ async function main() {
       return node?.value===professionalId;
     },{inspectionId:ids.visual,professionalId:ids.professional});
     record("gestor atribui e reatribui profissional existente sem criar pessoa, conta ou contrato");
+
+    const historical=await fixturePage(browser,base,{historicalEngineer:true}),historicalCard=historical.page.locator(`.inspection-card[data-inspection-id="${ids.visual}"]`);await navigate(historical.page,"ativos",ids.system);await historicalCard.waitFor();
+    const historicalSelect=historicalCard.locator('[name="professionalId"]'),historicalOption=historicalSelect.locator('option[value="'+id(50)+'"]');
+    assert.equal(await historicalSelect.inputValue(),id(50));assert.equal(await historicalOption.evaluate(option=>option.disabled&&option.matches(':disabled')),true);assert.match(await historicalOption.innerText(),/perfil atual não elegível/);
+    assert.deepEqual(await historicalSelect.locator('option:not([value=""]):not(:disabled)').evaluateAll(nodes=>nodes.map(node=>node.value)),[ids.professional,ids.otherProfessional]);
+    await historicalCard.getByRole('button',{name:'Iniciar inspeção',exact:true}).click();await ready(historical.page,ids.visual);assert.equal(await historical.page.getByRole('button',{name:'Iniciar inspeção',exact:true}).isDisabled(),true);
+    assert.equal(historical.state.inspection[0].assigneeProfessionalId,id(50));assert.equal(historical.writes.length,0);assert.deepEqual(historical.errors,[]);await historical.context.close();
+    record("atribuição oferece só inspetores funcionais, mantém inspetor sem acesso vinculado e preserva engenheiro histórico desabilitado", "UI com API simulada; a negativa real de papel funcional é verificada nos testes SQL isolados.");
+
+    const legacyProfiles=await fixturePage(browser,base,{omitFunctionalRoles:true}),legacyCard=legacyProfiles.page.locator(`.inspection-card[data-inspection-id="${ids.visual}"]`);await legacyCard.waitFor();
+    const legacySelect=legacyCard.locator('[name="professionalId"]');assert.equal(await legacySelect.locator('option:not([value=""]):not(:disabled)').count(),0);assert.equal(await legacySelect.inputValue(),ids.professional);
+    assert.match(await legacyCard.innerText(),/Atualize a lista antes de atribuir; os profissionais existentes foram preservados/);assert.equal(legacyProfiles.state.inspection[0].assigneeProfessionalId,ids.professional);assert.equal(legacyProfiles.writes.length,0);await legacyProfiles.context.close();
+    record("consulta antiga sem perfil funcional bloqueia novas escolhas, pede atualização e mantém o cadastro e a atribuição atuais");
 
     await card.getByRole("button",{name:"Iniciar inspeção",exact:true}).click();
     await ready(page,ids.visual);

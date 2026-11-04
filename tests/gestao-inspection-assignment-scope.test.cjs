@@ -14,6 +14,36 @@ async function fixtureChange(f,sql,args=[]){
  try{return await f.db.query(sql,args);}finally{await f.db.query("select set_config('request.jwt.claim.sub','',false)");}
 }
 
+test('assignment eligibility: engineer reviewers and nonmanager actors are rejected atomically; unlinked exercise inspectors remain eligible',async t=>{
+ const f=await createScopedEdgeFixture(t,{start:false}),engineer=randomUUID(),unlinked=randomUUID();
+ for(const[id,role,key]of[[engineer,'engineer_reviewer','EF-SYNTHETIC-ONLY'],[unlinked,'inspector','IF-SYNTHETIC-ONLY']])await fixtureChange(f,"insert into pi_team_private.professionals(tenant_id,id,name,functional_role,exercise,exercise_key,created_by,updated_by) values($1,$2,$3,$4,true,$5,$6,$6)",[f.ids.tenantA,id,'PROFISSIONAL SOMENTE FIXTURE '+role,role,key,f.ids.adminA]);
+ const detail=await f.op('execution.get',{inspectionId:f.inspection.id}),list=await f.op('execution.list');
+ for(const response of[detail,list]){
+  assert.equal(response.professionals.find(person=>person.id===engineer).functionalRole,'engineer_reviewer');
+  assert.equal(response.professionals.find(person=>person.id===unlinked).functionalRole,'inspector');assert.equal(response.professionals.find(person=>person.id===unlinked).accessLinked,false);
+ }
+ const snapshot=async()=>({inspection:(await f.db.query('select body,version from pi_gestao_private.records where tenant_id=$1 and id=$2',[f.ids.tenantA,f.inspection.id])).rows[0],counts:(await f.db.query('select (select count(*)::int from auth.users) users,(select count(*)::int from pi_gestao_private.pilot_access) pilots,(select count(*)::int from pi_gestao_private.operation_receipts) receipts,(select count(*)::int from pi_gestao_private.audit) audits')).rows[0]});
+ const before=await snapshot(),payload=professionalId=>({inspectionId:f.inspection.id,professionalId,expectedVersion:detail.inspection.version,requestId:randomUUID()});
+ await assert.rejects(f.op('execution.assign',payload(engineer)),{code:'22023'});assert.deepEqual(await snapshot(),before);
+ for(const actor of[f.ids.inspector,f.ids.planner,f.ids.assistant]){await assert.rejects(f.op('execution.assign',payload(unlinked),actor),{code:'42501'});assert.deepEqual(await snapshot(),before);}
+ const assigned=await f.op('execution.assign',payload(unlinked));assert.equal(assigned.inspection.assigneeProfessionalId,unlinked);assert.equal(assigned.canExecute,false,'planning does not create login or execution permission');
+ const after=await snapshot();assert.equal(after.counts.users,before.counts.users);assert.equal(after.counts.pilots,before.counts.pilots);
+ assert.deepEqual((await f.db.query('select user_id,exercise,exercise_key,functional_role from pi_team_private.professionals where tenant_id=$1 and id=$2',[f.ids.tenantA,unlinked])).rows[0],{user_id:null,exercise:true,exercise_key:'IF-SYNTHETIC-ONLY',functional_role:'inspector'});
+});
+
+test('assignment eligibility: existing engineer assignment stays readable and unchanged until a legitimate new assignment',async t=>{
+ const f=await createScopedEdgeFixture(t,{start:false}),engineer=randomUUID();
+ await fixtureChange(f,"insert into pi_team_private.professionals(tenant_id,id,name,functional_role,exercise,exercise_key,created_by,updated_by) values($1,$2,'ENGENHEIRO HISTÓRICO SOMENTE FIXTURE','engineer_reviewer',true,'EF-HISTORICAL-SYNTHETIC',$3,$3)",[f.ids.tenantA,engineer,f.ids.adminA]);
+ // Model a pre-existing assignment in a disposable fixture, not a migration or a new API assignment.
+ await f.db.query("update pi_gestao_private.records set body=jsonb_set(jsonb_set(body,'{assigneeProfessionalId}',to_jsonb($1::text)),'{assigneeName}','\"ENGENHEIRO HISTÓRICO SOMENTE FIXTURE\"'::jsonb) where tenant_id=$2 and id=$3",[engineer,f.ids.tenantA,f.inspection.id]);
+ const before=(await f.db.query('select body,version from pi_gestao_private.records where tenant_id=$1 and id=$2',[f.ids.tenantA,f.inspection.id])).rows[0],detail=await f.op('execution.get',{inspectionId:f.inspection.id});
+ assert.equal(detail.inspection.assigneeProfessionalId,engineer);assert.equal(detail.canExecute,false);
+ await assert.rejects(f.op('execution.assign',{inspectionId:f.inspection.id,professionalId:engineer,expectedVersion:detail.inspection.version,requestId:randomUUID()}),{code:'22023'});
+ assert.deepEqual((await f.db.query('select body,version from pi_gestao_private.records where tenant_id=$1 and id=$2',[f.ids.tenantA,f.inspection.id])).rows[0],before);
+ const fixed=await f.op('execution.assign',{inspectionId:f.inspection.id,professionalId:f.professionals.inspector,expectedVersion:detail.inspection.version,requestId:randomUUID()});assert.equal(fixed.inspection.assigneeProfessionalId,f.professionals.inspector);
+ assert.equal((await f.db.query('select exercise_key from pi_team_private.professionals where tenant_id=$1 and id=$2',[f.ids.tenantA,engineer])).rows[0].exercise_key,'EF-HISTORICAL-SYNTHETIC');
+});
+
 test('assignment scope: active assigned inspector can execute without generic write, while manager assignment and read-only roles remain distinct',async t=>{
  const f=await createScopedEdgeFixture(t,{start:false});
  const access=await f.op('access.get',{},f.ids.inspector);assert.equal(access.write,false);assert.equal(access.inspectionWriteAllowed,true);assert.equal(access.inspectionScopeVersion,1);

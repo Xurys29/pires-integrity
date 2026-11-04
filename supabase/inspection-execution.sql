@@ -489,7 +489,7 @@ begin
  return jsonb_build_object('inspection',i||jsonb_build_object('assigneeName',a.name,'assigneeAccessLinked',a.user_id is not null),
  'execution',e,'catalog',cat,'catalogBinding',catalog_state->'catalogBinding','catalogChoices',catalog_state->'catalogChoices','canSelectCatalog',catalog_state->'canSelectCatalog','outcomeWorkflowVersion',1,'points',coalesce((select jsonb_agg(r.body||jsonb_build_object('id',r.id,'version',r.version) order by r.seq) from pi_gestao_private.records r where r.tenant_id=p_tenant and r.owner_id=p_owner and r.kind='document' and r.body->>'recordClass'='field_point_reference' and r.body->>'executionId'=e->>'id' and r.body->>'inspectionId'=i->>'id'),'[]'::jsonb),'actorUserId',actor,'professionalId',p.id,'canAssign',manager and cap->>'write'='true',
  'writeAllowed',(manager and cap->>'write'='true') or coalesce(can_execute,false),'administrativeWriteAllowed',cap->>'write'='true','canExecute',coalesce(can_execute,false),'executionBlockReason',reason,'inspectionScopeVersion',1,
- 'professionals',case when manager then coalesce((select jsonb_agg(jsonb_build_object('id',q.id,'name',q.name,'registrationState',q.registration_state,'accessLinked',q.user_id is not null) order by q.name) from pi_team_private.professionals q where q.tenant_id=p_tenant and q.registration_state='active' and q.access_revoked_at is null),'[]') else '[]'::jsonb end);
+ 'professionals',case when manager then coalesce((select jsonb_agg(jsonb_build_object('id',q.id,'name',q.name,'functionalRole',q.functional_role,'registrationState',q.registration_state,'accessLinked',q.user_id is not null) order by q.name) from pi_team_private.professionals q where q.tenant_id=p_tenant and q.registration_state='active' and q.access_revoked_at is null),'[]') else '[]'::jsonb end);
 end $$;
 
 -- The inspector context is constructed from current assignments, never by
@@ -795,7 +795,7 @@ begin
   and pi_gestao_private.ga_execution_scope_matches(r.body,con.body||jsonb_build_object('id',con.id),campaign.body||jsonb_build_object('id',campaign.id))
   and (manager or r.body->>'assigneeProfessionalId'=person.id::text);
   return jsonb_build_object('actorUserId',actor,'professionalId',person.id,'canAssign',manager and cap->>'write'='true','writeAllowed',(manager and cap->>'write'='true') or (cap->>'role'='inspector' and person.functional_role='inspector'),'inspectionScopeVersion',1,'inspections',result,
-   'professionals',case when manager then coalesce((select jsonb_agg(jsonb_build_object('id',p.id,'name',p.name,'registrationState',p.registration_state,'accessLinked',p.user_id is not null) order by p.name) from pi_team_private.professionals p where p.tenant_id=p_tenant and p.registration_state='active' and p.access_revoked_at is null),'[]') else '[]'::jsonb end);
+   'professionals',case when manager then coalesce((select jsonb_agg(jsonb_build_object('id',p.id,'name',p.name,'functionalRole',p.functional_role,'registrationState',p.registration_state,'accessLinked',p.user_id is not null) order by p.name) from pi_team_private.professionals p where p.tenant_id=p_tenant and p.registration_state='active' and p.access_revoked_at is null),'[]') else '[]'::jsonb end);
  end if;
  inspection_id:=(p_payload->>'inspectionId')::uuid;
  d:=pi_gestao_private.ga_execution_detail(p_tenant,own,inspection_id);i:=d->'inspection';
@@ -832,6 +832,7 @@ begin
   if i->>'status'='concluida' then raise exception 'Atividade concluída não pode ser reatribuída.' using errcode='22023';end if;
   select * into person from pi_team_private.professionals where tenant_id=p_tenant and id=nullif(p_payload->>'professionalId','')::uuid and registration_state='active' and access_revoked_at is null;
   if nullif(p_payload->>'professionalId','') is not null and person.id is null then raise exception 'Selecione profissional ativo do cadastro existente.' using errcode='22023';end if;
+  if person.id is not null and person.functional_role is distinct from 'inspector' then raise exception 'Atribuição operacional exige profissional com papel funcional de inspetor.' using errcode='22023';end if;
   perform pi_gestao_private.ga_change(p_tenant,own,inspection_id,'inspection',(p_payload->>'expectedVersion')::bigint,jsonb_build_object('assigneeProfessionalId',person.id,'assigneeName',person.name,'assignedAt',now(),'assignedBy',actor),actor,'responsável da inspeção atribuído');
  elsif p_action='execution.start' then
   if i->>'type'='visual' and d->'catalogBinding'->>'status' is distinct from 'pinned' then raise exception 'Selecione explicitamente catálogo aplicável e versionado antes de iniciar a inspeção visual.' using errcode='22023';end if;

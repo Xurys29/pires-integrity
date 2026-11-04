@@ -87,12 +87,15 @@
       const form = el("form", undefined, "inspection-assignment"); form.dataset.operation = "execution-assign";
       const select = input(form, "professionalId", "Inspetor responsável", "select");
       choice(select, "", "Não atribuído");
-      for (const person of access.professionals || []) {
+      const eligible = access.professionals.filter((person) => person.functionalRole === "inspector");
+      if (!eligible.length && access.professionals.some((person) => person.functionalRole === undefined || person.functionalRole === null)) note(form, "O perfil funcional ainda não foi confirmado nesta consulta. Atualize a lista antes de atribuir; os profissionais existentes foram preservados.");
+      for (const person of eligible) {
         const option = choice(select, person.id, person.name + (person.accessLinked === false ? " · acesso não vinculado" : ""));
         option.disabled = person.registrationState && person.registrationState !== "active";
       }
-      if (inspection.assigneeProfessionalId && !access.professionals.some((person) => person.id === inspection.assigneeProfessionalId)) {
-        choice(select, inspection.assigneeProfessionalId, (inspection.assigneeName || "Profissional atribuído") + " · cadastro a conferir").disabled = true;
+      if (inspection.assigneeProfessionalId && !eligible.some((person) => person.id === inspection.assigneeProfessionalId)) {
+        const current = access.professionals.find((person) => person.id === inspection.assigneeProfessionalId), reason = current && (current.functionalRole === undefined || current.functionalRole === null) ? " · perfil funcional a confirmar" : current && current.functionalRole !== "inspector" ? " · perfil atual não elegível para novas atribuições" : " · cadastro a conferir";
+        choice(select, inspection.assigneeProfessionalId, (inspection.assigneeName || "Profissional atribuído") + reason).disabled = true;
       }
       select.value = inspection.assigneeProfessionalId || "";
       const submit = el("button", "Salvar atribuição"); submit.type = "submit";
