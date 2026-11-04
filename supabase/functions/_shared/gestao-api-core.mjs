@@ -182,7 +182,11 @@ function duplicateObject(error) {
   return Number(error?.statusCode || error?.status) === 409 || error?.error === "Duplicate" || error?.code === "Duplicate";
 }
 
-export function createGestaoHandler({ appOrigin, createUserClient, createServiceClient, readXlsx, validateDocument, validatePhoto, preparedSources = [], readPreparedSource, preparedLineList }) {
+/** @typedef {{ id: string, name: string }} PreparedSourceReference */
+/** @type {readonly PreparedSourceReference[]} */
+const EMPTY_PREPARED_SOURCES = Object.freeze([]);
+
+export function createGestaoHandler({ appOrigin, createUserClient, createServiceClient, readXlsx, validateDocument, validatePhoto, preparedSources = EMPTY_PREPARED_SOURCES, readPreparedSource, preparedLineList }) {
   const allowedOrigin = configuredOrigin(appOrigin);
   return async function handle(request) {
     const origin = request.headers.get("Origin");
