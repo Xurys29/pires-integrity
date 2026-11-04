@@ -48,7 +48,7 @@ async function catalogue(f){
  await catalogueMetadata(f,{ownerId:f.owner,catalogId:id,contractIds:[f.scope.contract.id],assetIds:[f.asset.id]});f.catalogId=id;
  return {id,items};
 }
-const saveInput=(f,d,answers,extra={})=>({inspectionId:d.inspection.id,requestId:randomUUID(),expectedVersion:d.execution.version,observedOn:f.today,answers,...extra});
+const saveInput=(f,d,answers,extra={})=>({inspectionId:d.inspection.id,requestId:randomUUID(),expectedVersion:d.execution.version,observedOn:f.today,inspectionStartedOn:f.today,inspectionEndedOn:f.today,answers,...extra});
 async function photo(f,d,index=0){const s=await original(f,'image_jpeg');return f.call('photos.create',{assetId:d.inspection.assetId,lvtItemId:d.execution.items[index].lvtItemId,sourceId:s.id,locator:{section:'ITEM FIXTURE '+index},caption:'FOTO SINTÉTICA SOMENTE FIXTURE'});}
 async function reportTree(f,scope,label){
  const inspection=await f.inspect('visual',scope),lvt=await f.call('field_lvts.create',{inspectionId:inspection.id,requestId:randomUUID(),observedOn:f.today,inspector:'INSPETOR EXCLUSIVO FIXTURE '+label});

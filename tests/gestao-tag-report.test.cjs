@@ -132,3 +132,112 @@ test('cobertura preserva quebras de linha e tabulação permitidas pela ficha se
   await assert.rejects(Report.freeze(f),/Cobertura exige/);
  }
 });
+
+// Numbering is local to a frozen conference, never a technical report or point number.
+function numberedFixture(){
+ const f=fixture(),first=f.snapshot.lvtItems[0],photo=f.snapshot.photos[0],execution=f.detail.execution;
+ const extra={...copy(photo),id:id(90),caption:'SEGUNDA FOTO DO PRIMEIRO ITEM SOMENTE FIXTURE'};
+ const second={...copy(first),id:id(200),catalogItemId:'component-2',itemKey:'Y-FONTE',recommendationId:null};
+ delete second.recommendationSource;
+ f.detail.catalog.items.push({...copy(f.detail.catalog.items[0]),id:second.catalogItemId,itemKey:second.itemKey,recommendations:[]});
+ execution.items.push({catalogItemId:second.catalogItemId,itemKey:second.itemKey,lvtItemId:second.id});
+ execution.answers.push({catalogItemId:second.catalogItemId,itemKey:second.itemKey,conditionId:'c-1',recommendationId:null,notCovered:false,photoIds:[id(14)]});
+ f.snapshot.lvtItems.push(second);f.snapshot.photos.push(extra,{...copy(photo),id:id(14),lvtItemId:second.id,caption:'FOTO DO SEGUNDO ITEM SOMENTE FIXTURE'});
+ execution.answers[0].photoIds=[photo.id,extra.id];first.photoIds=copy(execution.answers[0].photoIds);
+ const point={...copy(first),id:id(50),lvtItemId:first.id,version:1,recordClass:'field_point_reference',label:'PONTO DECLARADO SOMENTE FIXTURE',photoIds:copy(first.photoIds),drawingReference:null,locationStatus:'pending_drawing_reference',source:f.source};
+ for(const key of ['catalogItemId','itemKey','component','conditionId','recommendationId','description','conditionSource','recommendationSource'])delete point[key];
+ const pointer={pointId:point.id,pointVersion:point.version,pointLabel:point.label,pointLinkStatus:'linked_field_reference'};
+ for(const row of [execution.answers[0],first,f.snapshot.findings[0],f.snapshot.rtis[0]])Object.assign(row,pointer);
+ // Only the first photograph is explicitly selected as evidence by this RTI.
+ f.snapshot.findings[0].photoIds=[photo.id];f.snapshot.rtis[0].photoIds=[photo.id];
+ f.snapshot.documents=[point];f.detail.points=[copy(point)];f.snapshot.lvts=[copy(execution)];
+ f.snapshot.recordVersions=f.snapshot.recordVersions.filter(row=>!['lvt_item','photo'].includes(row.kind));
+ for(const[kind,rows]of [['lvt_item',f.snapshot.lvtItems],['photo',f.snapshot.photos],['document',f.snapshot.documents]])for(const row of rows)f.snapshot.recordVersions.push({id:row.id,kind,version:row.version});
+ return f;
+}
+function numberedImages(f){
+ const bytes=Uint8Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=','base64'));
+ return Object.fromEntries(f.snapshot.photos.map(photo=>[photo.id,{bytes,mime:'image/png'}]));
+}
+function captureNumbered(){
+ const texts=[],saved=[];
+ function Ctor(options){const doc=new jsPDF(options),text=doc.text;doc.text=function(value,...args){texts.push(Array.isArray(value)?value.join('\n'):String(value));return text.call(doc,value,...args);};doc.save=name=>saved.push(name);return doc;}
+ return{Ctor,texts,saved};
+}
+test('numeração fotográfica deriva do conteúdo congelado sem mudar digest legado, originais ou vínculo de RTI presumido',async()=>{
+ const f=fixture(),before=JSON.stringify(f),record=await Report.freeze(f),frozen=JSON.stringify(record),c=captureNumbered();
+ assert.equal(record.contentDigest,'sha256:11b8bcca38476b3531f3754765d2013ca33e5d4ddbcedef48d64322a9cd66587');
+ const result=await Report.createPdf(record,numberedImages(f),{},c.Ctor),numbering=result.metadata.photoNumbering;
+ assert.equal(numbering.version,1);assert.equal(numbering.contentDigest,record.contentDigest);
+ assert.deepEqual(numbering.references,[{label:'Foto 01',photoId:id(11),photoVersion:1,itemId:id(10),itemKey:'X-FONTE',pointReferences:[],rtiReferences:[]}]);
+ assert.ok(Object.isFrozen(numbering.references));assert.equal(JSON.stringify(f),before);assert.equal(JSON.stringify(record),frozen);assert.deepEqual(c.saved,[]);
+ assert.equal(result.metadata.canIssue,false);assert.equal(result.metadata.technicalRevision,null);assert.deepEqual(result.metadata.signatures,[]);
+ assert.ok(c.texts.join('\n').includes('RTI com vínculo explícito à foto (ID interno): não informado'));
+});
+test('múltiplas fotos seguem itemID/fotoID e explicitam apenas pontos e RTIs já vinculados a cada evidência',async()=>{
+ const f=numberedFixture(),record=await Report.freeze(f),c=captureNumbered(),result=await Report.createPdf(record,numberedImages(f),{},c.Ctor),refs=result.metadata.photoNumbering.references;
+ assert.deepEqual(refs.map(r=>[r.label,r.photoId,r.itemId]),[['Foto 01',id(11),id(10)],['Foto 02',id(90),id(10)],['Foto 03',id(14),id(200)]]);
+ assert.deepEqual(refs[0].pointReferences,[{id:id(50),version:1,label:'PONTO DECLARADO SOMENTE FIXTURE',locationStatus:'pending_drawing_reference'}]);assert.deepEqual(refs[1].pointReferences,refs[0].pointReferences);assert.deepEqual(refs[2].pointReferences,[]);
+ assert.deepEqual(refs[0].rtiReferences,[{id:id(13),version:2}]);assert.deepEqual(refs[1].rtiReferences,[]);assert.deepEqual(refs[2].rtiReferences,[]);
+ assert.equal(new Set(refs.map(r=>r.label)).size,3);assert.deepEqual(result.metadata.embeddedPhotoIds,[id(11),id(90),id(14)]);
+ const text=c.texts.join('\n');for(const ref of refs)assert.equal(c.texts.filter(value=>value.startsWith(ref.label+' · ID '+ref.photoId)).length,1);
+ assert.ok(text.includes('Evidências fotográficas vinculadas à RTI: Foto 01'));assert.ok(text.includes('Localização no desenho pendente'));assert.ok(!text.includes('Foto 04'));
+});
+test('permutar snapshot ou mapa de imagens e gerar outra cópia preserva a mesma numeração e digest',async()=>{
+ const f=numberedFixture(),first=await Report.freeze(f),a=await Report.createPdf(first,numberedImages(f),{generatedAt:'2026-11-03T12:00:00Z'},jsPDF);
+ for(const key of ['lvtItems','photos','findings','rtis','recordVersions','sourceProvenance','documents'])f.snapshot[key].reverse();
+ const permuted=await Report.freeze(f),images=new Map(Object.entries(numberedImages(f)).reverse()),b=await Report.createPdf(permuted,images,{generatedAt:'2026-11-04T12:00:00Z'},jsPDF);
+ assert.equal(permuted.contentDigest,first.contentDigest);assert.deepEqual(b.metadata.photoNumbering,a.metadata.photoNumbering);assert.deepEqual(b.metadata.embeddedPhotoIds,a.metadata.embeddedPhotoIds);
+});
+test('foto indisponível mantém seu número reservado; conteúdo ou IDs duplicados continuam bloqueados',async()=>{
+ const f=numberedFixture(),record=await Report.freeze(f),images=numberedImages(f);delete images[id(11)];
+ const result=await Report.createPdf(record,images,{},jsPDF);
+ assert.deepEqual(result.metadata.photoNumbering.references.map(r=>r.label),['Foto 01','Foto 02','Foto 03']);assert.deepEqual(result.metadata.embeddedPhotoIds,[id(90),id(14)]);assert.ok(result.metadata.pending.some(text=>text.includes(id(11))));
+ const tampered=copy(record);tampered.content.photos.reverse();await assert.rejects(Report.createPdf(tampered,images,{},jsPDF),/conteúdo congelado mudou/);
+ const duplicate=numberedFixture();duplicate.snapshot.photos.push(copy(duplicate.snapshot.photos[0]));await assert.rejects(Report.freeze(duplicate),/repetida|colide/);
+});
+test('novo conteúdo recebe seu próprio mapa e não renumera conferência anterior nem aceita mapa fornecido pelo chamador',async()=>{
+ const f=numberedFixture(),old=await Report.freeze(f),oldJson=JSON.stringify(old),a=await Report.createPdf(old,numberedImages(f),{},jsPDF);
+ const added={...copy(f.snapshot.photos.find(photo=>photo.id===id(90))),id:id(80),caption:'NOVA FOTO SOMENTE FIXTURE'};f.snapshot.photos.push(added);f.snapshot.recordVersions.push({id:added.id,kind:'photo',version:added.version});
+ const next=await Report.freeze(f),b=await Report.createPdf(next,numberedImages(f),{photoNumbering:{references:[{label:'Foto 99'}]}},jsPDF),again=await Report.createPdf({...old,photoNumbering:b.metadata.photoNumbering},numberedImages(f),{},jsPDF);
+ assert.notEqual(next.contentDigest,old.contentDigest);assert.equal(b.metadata.photoNumbering.contentDigest,next.contentDigest);assert.deepEqual(b.metadata.photoNumbering.references.map(r=>r.photoId),[id(11),id(80),id(90),id(14)]);
+ assert.equal(JSON.stringify(old),oldJson);assert.deepEqual(again.metadata.photoNumbering,a.metadata.photoNumbering);assert.deepEqual(a.metadata.photoNumbering.references.map(r=>r.label),['Foto 01','Foto 02','Foto 03']);assert.equal(b.metadata.canIssue,false);
+});
+
+function datedFixture(){
+ const f=fixture(),execution=f.detail.execution;
+ execution.inspectionStartedOn='2026-11-01';execution.inspectionEndedOn='2026-11-04';
+ for(const row of [execution.answers[0],...f.snapshot.lvtItems,...f.snapshot.findings,...f.snapshot.rtis])row.findingObservedAt='2026-11-02T12:34:56.123-03:00';
+ f.snapshot.rtis[0].deadlineAnchor={event:'inspection_completed',date:execution.inspectionEndedOn,status:'declared',inspectionId:f.scope.inspectionId,executionId:f.scope.executionId,executionVersion:execution.version};
+ f.snapshot.lvts=[copy(execution)];return f;
+}
+test('datas declaradas de início/fim e horário do achado mantêm valores distintos e fuso literal no rascunho',async()=>{
+ const f=datedFixture(),record=await Report.freeze(f),frozen=JSON.stringify(record),c=captureNumbered(),result=await Report.createPdf(record,{}, {},c.Ctor),text=c.texts.join('\n');
+ for(const expected of ['Data observada declarada: 2026-11-03','Início declarado da inspeção: 2026-11-01','Fim declarado da inspeção: 2026-11-04','Horário final da inspeção: não registrado','2026-11-02T12:34:56.123-03:00','Marco do prazo — fim declarado da inspeção: 2026-11-04'])assert.ok(text.includes(expected),expected);
+ assert.ok(!text.includes('2026-11-02T15:34:56.123Z'));assert.equal(JSON.stringify(record),frozen);assert.equal(result.metadata.canIssue,false);assert.deepEqual(result.metadata.signatures,[]);
+ const changed=datedFixture();for(const row of [changed.detail.execution.answers[0],...changed.snapshot.lvtItems,...changed.snapshot.findings,...changed.snapshot.rtis])row.findingObservedAt='2026-11-02T15:34:56.123Z';changed.snapshot.lvts=[copy(changed.detail.execution)];
+ assert.notEqual((await Report.freeze(changed)).contentDigest,record.contentDigest,'even the same instant preserves the literal saved declaration in its digest');
+});
+test('conferência antiga conserva digest e marco realizado nunca se apresenta como data final inferida',async()=>{
+ const legacy=fixture(),record=await Report.freeze(legacy),c=captureNumbered();
+ assert.equal(record.contentDigest,'sha256:11b8bcca38476b3531f3754765d2013ca33e5d4ddbcedef48d64322a9cd66587');
+ await Report.createPdf(record,{}, {},c.Ctor);assert.ok(!c.texts.join('\n').includes('Fim declarado da inspeção:'));assert.ok(!c.texts.join('\n').includes('Data/hora do achado (fuso'));
+ const f=fixture();f.snapshot.rtis[0].deadlineAnchor={event:'inspection_performed',date:'2026-11-03',status:'declared'};
+ const performed=await Report.freeze(f),p=captureNumbered();await Report.createPdf(performed,{}, {},p.Ctor);const text=p.texts.join('\n');
+ assert.ok(text.includes('Marco observado declarado: 2026-11-03'));assert.ok(text.includes('esta data não confirma o fim da inspeção'));assert.ok(!text.includes('Marco do prazo — fim declarado da inspeção:'));assert.equal(Object.hasOwn(performed.content.execution,'inspectionEndedOn'),false);
+});
+test('novas datas são opcionais mas detalhe divergente, data impossível e horário sem fuso não são apresentados',async()=>{
+ for(const key of ['inspectionStartedOn','inspectionEndedOn']){const f=datedFixture();f.detail.execution[key]='2026-10-31';await assert.rejects(Report.freeze(f),/Conteúdo da execução diverge/);}
+ const invalid=datedFixture();invalid.detail.execution.inspectionStartedOn='2026-02-30';invalid.snapshot.lvts=[copy(invalid.detail.execution)];await assert.rejects(Report.freeze(invalid),/Data declarada da inspeção inválida/);
+ for(const value of ['2026-11-02T12:34:56','2026-11-02','2026-11-02T12:34:56 local']){const f=datedFixture();for(const row of [f.detail.execution.answers[0],...f.snapshot.lvtItems,...f.snapshot.findings,...f.snapshot.rtis])row.findingObservedAt=value;f.snapshot.lvts=[copy(f.detail.execution)];await assert.rejects(Report.freeze(f),/fuso explícito/);}
+ const mismatch=datedFixture();mismatch.snapshot.lvtItems[0].findingObservedAt='2026-11-02T12:35:00-03:00';await assert.rejects(Report.freeze(mismatch),/Data\/hora do achado diverge/);
+ const pending=fixture();pending.detail.execution.inspectionStartedOn=null;pending.detail.execution.inspectionEndedOn=null;pending.snapshot.lvts=[copy(pending.detail.execution)];await Report.createPdf(await Report.freeze(pending),{}, {},jsPDF);
+});
+test('decisão manual mostra justificativa, marco e versão sem aprovar matriz ou reinterpretar marco legado',async()=>{
+ const f=datedFixture(),rti=f.snapshot.rtis[0];
+ rti.deadlineDecision={schemaVersion:1,mode:'manual',due:rti.due,justification:'JUSTIFICATIVA MANUAL SOMENTE FIXTURE',actorUserId:id(60),at:'2026-11-05T09:10:11-03:00',requestId:id(61),deadlineAnchor:{event:'inspection_performed',date:'2026-11-03',status:'declared'},basisRtiVersion:2,policyStatus:'unlinked',policyId:null,policyVersion:null};
+ const record=await Report.freeze(f),before=JSON.stringify(record),c=captureNumbered(),result=await Report.createPdf(record,{}, {},c.Ctor),text=c.texts.join('\n');
+ for(const expected of ['Decisão manual de prazo registrada; não constitui aprovação técnica.','Prazo da decisão manual: 2026-11-30','JUSTIFICATIVA MANUAL SOMENTE FIXTURE','2026-11-05T09:10:11-03:00','versão base da RTI: 2','inspeção realizada (marco legado; não confirma o fim)','Decisão manual sem vínculo com política ou versão aprovada da matriz de risco.'])assert.ok(text.includes(expected),expected);
+ assert.ok(text.includes('Marco do prazo — fim declarado da inspeção: 2026-11-04'));assert.equal(JSON.stringify(record),before);assert.equal(result.metadata.technicalApproval,'pending');assert.equal(result.metadata.technicalRevision,null);assert.deepEqual(c.saved,[]);
+ const tampered=copy(record);tampered.content.rtis[0].deadlineDecision.justification='DECISÃO ALTERADA';await assert.rejects(Report.createPdf(tampered,{}, {},jsPDF),/conteúdo congelado mudou/);
+});

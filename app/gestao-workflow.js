@@ -13,6 +13,7 @@
     function render(parent,operation,defaults={}){
       if(!titles[operation]||!writable())return false;
       const initialKey=key(),requestId=root.crypto.randomUUID(),controls={},box=doc.createElement('details'),form=doc.createElement('form'),grid=doc.createElement('div'),feedback=doc.createElement('p');
+      let rtiView=null;
       box.className='operation-drawer';grid.className='formgrid';form.dataset.operation=operation;feedback.setAttribute('role','status');
       const summary=doc.createElement('summary');summary.textContent=titles[operation];box.append(summary);
       const add=(name,text,type='text',required=true,value,choices)=>{
@@ -56,8 +57,20 @@
         note('Uma recomendação preenchida cria a RTI vinculada ao item automaticamente. As fotos são anexadas ao abrir o item salvo.');
       }else if(operation==='rti-updates'){
         const rti=records('rti').find(r=>r.id===defaults.id);if(!rti)return false;
+        rtiView=JSON.parse(JSON.stringify(rti));
         add('responsible','Responsável pelo atendimento','text',false,rti.responsible);add('due','Prazo manual justificado','date',false,rti.due);add('action','Ação necessária ou realizada','textarea',false);add('evidence','Justificativa do prazo / evidência deste acompanhamento','textarea');
-        note('O prazo é registrado manualmente com justificativa. O marco é a data declarada da inspeção realizada: '+(rti.deadlineAnchor?.date||'pendente')+'. A matriz de risco Pires ainda depende de aprovação; nenhum vencimento é calculado por esta tela.');
+        const finalAnchor=rti.deadlineAnchor?.event==='inspection_completed'&&rti.deadlineAnchor?.status==='declared';
+        note('O prazo é registrado manualmente com justificativa. O marco é a data final da inspeção: '+(finalAnchor?rti.deadlineAnchor.date:'pendente de registro explícito')+'. A versão e a regra da matriz Pires ainda não estão vinculadas a esta RTI; nenhum vencimento é calculado por esta tela.');
+        if(rti.executionId){
+          const available=context().capabilities?.rtiDeadlineDecisionVersion===1,anchor=rti.deadlineAnchor;
+          const review=add('reviewDeadline','Registrar ou revisar a decisão manual de prazo','checkbox',false);
+          review.disabled=!available||!finalAnchor||!anchor?.date||rti.status==='encerrada';
+          controls.due.disabled=true;if(anchor?.date)controls.due.min=anchor.date;
+          review.onchange=()=>{controls.due.disabled=!review.checked||review.disabled;controls.due.required=review.checked&&!review.disabled;};
+          if(!available)note('O serviço precisa confirmar o registro da decisão de prazo. O acompanhamento pode ser salvo sem alterar a data existente.');
+          else if(!finalAnchor||!anchor?.date)note('Registre a data final da inspeção antes de definir o prazo desta tratativa. A data histórica não confirma o fim.');
+          else note('Marque a opção somente para registrar uma nova decisão de prazo. O acompanhamento sem essa opção preserva o prazo e sua revisão pendente.');
+        }
         if(rti.deadlineReviewRequired)note('A inspeção ou a recomendação mudou. Revise o prazo e sua justificativa; a data anterior foi preservada.');
         add('status','Verificação da situação atual','select',false,undefined,[['aberta','Confirmar aberta'],['encerrada','Confirmar encerrada']]);
         add('confirmedOn','Data da verificação atual','date',false);select('evidenceDocumentId','Documento de evidência do atendimento','document',r=>r.assetId===rti.assetId,false);add('reinspection','Reinspeção / verificação de atendimento','textarea',false);
@@ -88,10 +101,21 @@
       form.onsubmit=async event=>{
         event.preventDefault();if(!writable()||key()!==initialKey)return;submit.disabled=true;feedback.textContent='Salvando…';
         try{
-          const payload={requestId};for(const [name,input] of Object.entries(controls))payload[name]=input.value.trim()||null;
+          const payload={requestId};for(const [name,input] of Object.entries(controls))if(name!=='reviewDeadline'&&!input.disabled)payload[name]=input.value.trim()||null;
           if(operation==='perenco-line-list')await options.uploadPrepared('perenco-pch1-line-list');
           if(operation==='perenco-tq-book'){await options.uploadPrepared('perenco-tq04761-plan');await options.uploadPrepared('perenco-tq04761-drawing');}
-          if(['rti-updates','inspection-updates'].includes(operation)){const r=records(operation==='rti-updates'?'rti':'inspection').find(r=>r.id===defaults.id);payload.id=r.id;payload.expectedVersion=r.version;}
+          if(operation==='rti-updates'){
+            payload.id=rtiView.id;payload.expectedVersion=rtiView.version;
+            if(rtiView.executionId){
+              delete payload.due;
+              if(controls.reviewDeadline?.checked){
+                if(controls.reviewDeadline.disabled||context().capabilities?.rtiDeadlineDecisionVersion!==1)throw Error('O serviço não confirmou a decisão de prazo vinculada à inspeção.');
+                if(!controls.due.value.trim())throw Error('Informe a data da decisão manual de prazo.');
+                payload.due=controls.due.value.trim();payload.deadlineBasis=JSON.parse(JSON.stringify(rtiView.deadlineAnchor));
+              }
+            }
+          }
+          if(operation==='inspection-updates'){const r=records('inspection').find(r=>r.id===defaults.id);payload.id=r.id;payload.expectedVersion=r.version;}
           if(operation==='asset-operation'){const r=records('asset').find(r=>r.id===defaults.assetId);payload.assetId=r.id;payload.expectedVersion=r.version;}
           if(controls.sourceDocumentId){const source=records('document').find(r=>r.id===payload.sourceDocumentId)?.source;if(!source?.sourceId)throw Error('Selecione um documento original registrado.');payload.sourceId=source.sourceId;payload.locator={section:payload.section};delete payload.sourceDocumentId;delete payload.section;}
           if(operation==='nr13-assess'){payload.inputs={};for(const name of Object.keys(controls)){if(['assetId','sourceDocumentId','section'].includes(name))continue;payload.inputs[name]=payload[name];delete payload[name];}}

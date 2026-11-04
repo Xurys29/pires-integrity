@@ -220,6 +220,16 @@
       const form = el("form", undefined, "inspection-execution-form"); form.dataset.operation = "inspection-execution";
       const fields = section(form, inspection.type === "espessura" ? "2. Instrumento e leituras" : "2. Checklist por item"), date = input(fields, "observedOn", "Data da execução", "date", execution.observedOn);
       date.disabled = !editable;
+      const timelineEnabled=ctx().capabilities?.inspectionTimelineVersion===1;
+      let startedOn,endedOn;
+      if(timelineEnabled){
+        date.type="hidden";date.disabled=true;date.parentElement.hidden=true;
+        if(execution.observedOn)note(fields,"Data histórica registrada: "+execution.observedOn+". Ela não confirma o fim da inspeção.");
+        startedOn=input(fields,"inspectionStartedOn","Data inicial da inspeção","date",execution.inspectionStartedOn||"");
+        endedOn=input(fields,"inspectionEndedOn","Data final da inspeção · marco do prazo da RTI","date",execution.inspectionEndedOn||"");
+        startedOn.disabled=endedOn.disabled=!editable;
+        note(fields,"Declare a data final somente ao terminar a inspeção. A tratativa pode ser salva e acompanhada antes disso. Prazos em horas dependem do horário real de fim e da regra de contagem, sem horário presumido.");
+      }
       let getValues;
       if (inspection.type === "visual") getValues = visualItems(fields, detail, editable, { token, key });
       else if (inspection.type === "espessura") getValues = thickness(fields, detail, editable);
@@ -238,8 +248,9 @@
         feedback.textContent = send ? "Salvando e enviando para revisão…" : "Salvando rascunho…";
         try {
           const values = getValues();
-          if (["good_condition", "treatment_required"].includes(values.outcome) && !date.value) throw Error("Informe a data em que a inspeção foi realizada. Ela é o marco das recomendações.");
-          let saved = await write("execution-save", { inspectionId: inspection.id, expectedVersion: currentExecution.version, observedOn: date.value || null, ...values });
+          if (!timelineEnabled && ["good_condition", "treatment_required"].includes(values.outcome) && !date.value) throw Error("Informe a data em que a inspeção foi realizada. O backend ainda não confirmou o registro separado da data final.");
+          if(send&&timelineEnabled&&(!startedOn.value||!endedOn.value))throw Error("Informe as datas inicial e final antes de enviar a inspeção para revisão.");
+          let saved = await write("execution-save", { inspectionId: inspection.id, expectedVersion: currentExecution.version, observedOn: date.value || (timelineEnabled?endedOn.value:null) || null, ...(timelineEnabled?{inspectionStartedOn:startedOn.value||null,inspectionEndedOn:endedOn.value||null}:{}), ...values });
           currentExecution = saved.execution;
           if (contextKey() !== key || token !== generation) return;
           if (send) { saved = await write("execution-submit", { inspectionId: inspection.id, expectedVersion: currentExecution.version }); currentExecution = saved.execution; }
@@ -252,7 +263,7 @@
       };
     }
     function visualItems(parent, detail, editable, guard) {
-      const catalog = detail.catalog || {}, execution = detail.execution, controls = [], workflowEnabled = detail.outcomeWorkflowVersion === 1;
+      const catalog = detail.catalog || {}, execution = detail.execution, controls = [], workflowEnabled = detail.outcomeWorkflowVersion === 1,timelineEnabled=ctx().capabilities?.inspectionTimelineVersion===1;
       let refreshOutcome = () => {};
       if (catalog.status !== "verified" || !catalog.items?.length) {
         note(parent, catalog.reason || "O catálogo de LVT com fontes conferidas ainda não está disponível.", "inspection-catalog-pending");
@@ -275,6 +286,8 @@
         if (!workflowEnabled) point.value = prior.pointLabel || "";
         point.maxLength = 200; point.disabled = !editable;
         point.placeholder = "Identifique o ponto observado, sem localização presumida";
+        const findingTime=timelineEnabled?input(box,"findingObservedAt","Data e hora do achado com fuso informado","text",prior.findingObservedAt||""):null;
+        if(findingTime){findingTime.disabled=!editable;findingTime.placeholder="Ex.: 2026-11-04T14:30:00-03:00";findingTime.maxLength=40;note(box,"Informe o horário realmente observado e seu fuso. Salvar a tratativa abre a RTI mesmo se esse dado ainda estiver pendente; confira-o antes de concluir a ficha.");}
         const pointRows = (detail.points || []).filter((entry) => entry.lvtItemId === shell?.lvtItemId && entry.inspectionId === detail.inspection.id && entry.executionId === execution.id),
           pointRecord = pointRows.length === 1 && (!prior.pointId || pointRows[0].id === prior.pointId) ? pointRows[0] : null;
         if (!point.value && pointRecord?.label) point.value = pointRecord.label;
@@ -328,16 +341,16 @@
             photoCount.textContent = photoIds.size + " foto(s) vinculada(s) a este item"; files.value = ""; photoFeedback.textContent = workflowEnabled ? "Fotos vinculadas. Selecione abaixo as que documentam a cobertura e salve o rascunho." : "Fotos vinculadas. Salve o rascunho para registrar a seleção completa do item."; refreshOutcome(true);
           } catch (error) { photoFeedback.textContent = error.message; } finally { if (upload.isConnected) upload.disabled = !editable || !shell?.lvtItemId; }
         }, "secondary"); upload.disabled = !editable || !shell?.lvtItemId;
-        controls.push({ item, condition, recommendation, point, photoIds, photoRecords });
+        controls.push({ item, condition, recommendation, point, photoIds, photoRecords,findingTime });
       }
       const getOutcome = workflowEnabled ? visualOutcome(parent, detail, controls, editable) : () => ({}); refreshOutcome = getOutcome.refresh || (() => {});
-      return () => ({ ...getOutcome(), answers: controls.map(({ item, condition, recommendation, point, photoIds }) => {
+      return () => ({ ...getOutcome(), answers: controls.map(({ item, condition, recommendation, point, photoIds,findingTime }) => {
         const selectedRecommendation = item.recommendations?.find((entry) => entry.id === recommendation.value), pointLabel = point.value.trim();
         if (!workflowEnabled && typeof selectedRecommendation?.requiresTreatment === "boolean") throw Error("Este backend ainda não habilitou os dois caminhos de resultado. A seleção classificada exige atualização antes de gravar.");
         if (workflowEnabled && (pointLabel.length > 200 || /[\u0000-\u001f\u007f]/.test(pointLabel))) throw Error("Item " + item.itemKey + ": confirme um rótulo de ponto de até 200 caracteres.");
         if (workflowEnabled && selectedRecommendation?.requiresTreatment === true && !pointLabel) throw Error("Item " + item.itemKey + ": informe o ponto de campo da tratativa.");
         if (recommendation.value && (!workflowEnabled || selectedRecommendation?.requiresTreatment !== false) && !photoIds.size) throw Error("Item " + item.itemKey + ": anexe ao menos uma fotografia antes de salvar a recomendação de tratativa.");
-        return { catalogItemId: item.id, itemKey: item.itemKey, conditionId: condition.value === "__not_covered__" ? null : condition.value || null, recommendationId: recommendation.value || null, notCovered: condition.value === "__not_covered__", photoIds: [...photoIds], ...(workflowEnabled ? { pointLabel: pointLabel || null } : {}) };
+        return { catalogItemId: item.id, itemKey: item.itemKey, conditionId: condition.value === "__not_covered__" ? null : condition.value || null, recommendationId: recommendation.value || null, notCovered: condition.value === "__not_covered__", photoIds: [...photoIds], ...(workflowEnabled ? { pointLabel: pointLabel || null } : {}),...(timelineEnabled?{findingObservedAt:findingTime.value.trim()||null}:{}) };
       }) });
     }
     function visualOutcome(parent, detail, controls, editable) {

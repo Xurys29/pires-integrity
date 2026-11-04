@@ -2,6 +2,13 @@
 const { test } = require("node:test"), assert = require("node:assert/strict"),
   fs = require("node:fs"), path = require("node:path"), vm = require("node:vm");
 const { describe, describeRti } = require("../app/gestao-asset-cards.js");
+
+test("RTI de campo permanece na fila antes do fim declarado e após confirmação da data final",()=>{
+ const record={originType:"field_recommendation",status:"aberta",requiresTreatment:true,executionId:"execution-fixture",inspectionId:"inspection-fixture",lvtItemId:"item-fixture",findingId:"finding-fixture",deadlineAnchor:{event:"inspection_completed",date:null,status:"pending_inspection_end",executionId:"execution-fixture",inspectionId:"inspection-fixture"}};
+ const pending=describeRti(record);assert.equal(pending.followupOpen,true);assert.equal(pending.currentness,"unknown");
+ const ended=describeRti({...record,deadlineAnchor:{...record.deadlineAnchor,status:"declared",date:"2026-11-04"}});assert.equal(ended.followupOpen,true);assert.equal(ended.currentness,"unknown");
+ assert.equal(describeRti({...record,deadlineAnchor:{...record.deadlineAnchor,executionId:"other"}}).followupOpen,false);
+});
 function freeze(value) {
   if (value && typeof value === "object") {
     Object.values(value).forEach(freeze);

@@ -267,7 +267,7 @@ export function createGestaoHandler({ appOrigin, createUserClient, createService
           role: grant?.role || null,
           accessMode: !grant ? null : ["admin", "master"].includes(grant.role) ? "management" : ["planner", "assistant"].includes(grant.role) ? "consultation" : grant.role === "inspector" && inspectionAvailable ? "assigned_inspector" : "scope_unavailable",
           preparedSources: grant && ["admin", "master", "planner", "assistant"].includes(grant.role) ? preparedSources.map(({id,name}) => ({id,name})) : [],
-          capabilities: { workflowVersion: 2, inspectionExecutionVersion: inspectionAvailable ? 1 : 0, inspectorWorkspaceVersion: inspectionAvailable ? 1 : 0, assignedExecutionWrite: inspectionAvailable && grant?.role === "inspector" && grant?.inspectionWriteAllowed === true, xlsx: !grant || ["admin", "master", "planner", "assistant"].includes(grant.role), pdf: false, xls: false, operations: true, documentOriginals: !grant || ["admin", "master", "planner", "assistant"].includes(grant.role), photoOriginals: true, xlsxMaxBytes: MAX_FILE, documentMaxBytes: MAX_DOCUMENT, photoMaxBytes: MAX_FILE, write: grant?.write === true },
+          capabilities: { workflowVersion: 2, inspectionExecutionVersion: inspectionAvailable ? 1 : 0, inspectorWorkspaceVersion: inspectionAvailable ? 1 : 0, inspectionTimelineVersion: inspectionAvailable && grant?.inspectionTimelineVersion === 1 ? 1 : 0, rtiDeadlineDecisionVersion: inspectionAvailable && grant?.rtiDeadlineDecisionVersion === 1 ? 1 : 0, assignedExecutionWrite: inspectionAvailable && grant?.role === "inspector" && grant?.inspectionWriteAllowed === true, xlsx: !grant || ["admin", "master", "planner", "assistant"].includes(grant.role), pdf: false, xls: false, operations: true, documentOriginals: !grant || ["admin", "master", "planner", "assistant"].includes(grant.role), photoOriginals: true, xlsxMaxBytes: MAX_FILE, documentMaxBytes: MAX_DOCUMENT, photoMaxBytes: MAX_FILE, write: grant?.write === true },
         });
       }
       if (route === "tenants" && request.method === "GET") {
@@ -477,6 +477,10 @@ export function createGestaoHandler({ appOrigin, createUserClient, createService
         }
         if (!write && parts.length === 5 && parts[2] === "reports" && ["system", "campaign"].includes(parts[3]) && UUID.test(parts[4]))
           return json(200, await call("reports.system", { ownerId, [parts[3] === "system" ? "systemId" : "campaignId"]: parts[4].toLowerCase() }));
+        if (write && parts.length === 3 && parts[2] === "execution-save" && (Object.hasOwn(body,"inspectionStartedOn") || Object.hasOwn(body,"inspectionEndedOn") || Array.isArray(body.answers) && body.answers.some(answer=>answer && Object.hasOwn(answer,"findingObservedAt"))) && grant?.inspectionTimelineVersion !== 1)
+          fail(503,"inspection_timeline_unavailable","O banco ainda não confirmou o registro das datas da inspeção e do horário do achado. Nenhuma alteração foi iniciada.");
+        if (write && parts.length === 3 && parts[2] === "rti-updates" && Object.hasOwn(body, "deadlineBasis") && (!inspectionBackendAvailable(grant) || grant?.rtiDeadlineDecisionVersion !== 1))
+          fail(503, "deadline_backend_unavailable", "O banco ainda não confirmou a decisão de prazo vinculada à inspeção. Nenhuma alteração foi iniciada.");
         if (write && parts.length === 3 && Object.hasOwn(CREATE_ACTIONS, parts[2]))
           return json(200, await call(CREATE_ACTIONS[parts[2]], { ...body, ownerId }));
         if (write && parts.length === 3 && parts[2] === "perenco-line-list" && preparedLineList) {

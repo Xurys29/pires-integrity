@@ -52,7 +52,8 @@
       followupOpen = record.originType === "field_recommendation" && record.status === "aberta" &&
         (record.requiresTreatment === true || record.actionabilityStatus === "legacy_unclassified") &&
         ["executionId", "inspectionId", "lvtItemId", "findingId"].every(key => !!nonempty(record[key])) &&
-        record.deadlineAnchor?.event === "inspection_performed" && validDate(record.deadlineAnchor.date) &&
+        (record.deadlineAnchor?.event === "inspection_performed" && validDate(record.deadlineAnchor.date) ||
+          record.deadlineAnchor?.event === "inspection_completed" && (record.deadlineAnchor.status === "declared" && validDate(record.deadlineAnchor.date) || record.deadlineAnchor.status === "pending_inspection_end" && record.deadlineAnchor.date === null)) &&
         record.deadlineAnchor.executionId === record.executionId && record.deadlineAnchor.inspectionId === record.inspectionId,
       sourceStatus = sourceValue(record.sourceStatus),
       sourceDate = sourceValue(record.sourceDate),

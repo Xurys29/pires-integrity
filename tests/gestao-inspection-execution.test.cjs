@@ -102,7 +102,7 @@ test('execution: verified choices, item photographs, same RTI on edit/reload, te
  const wrong=await f.exec('photos.create',{assetId:f.asset.id,lvtItemId:d.execution.items[1].lvtItemId,sourceId:src.id,locator:{section:'Item 2'},caption:'FOTO FIXTURE OUTRO ITEM'});
  await assert.rejects(save(f,d,[{...answer,photoIds:[wrong.id]}]),{code:'42501'});
  const unknown={catalogItemId:'item-2',itemKey:'2',conditionId:null,recommendationId:null,notCovered:true,photoIds:[]};
- d=await save(f,d,[{...answer,conditionId:'c1b',recommendationId:'r1b'},unknown]);assert.equal(d.execution.technicalReviewRequired,true);
+ d=await save(f,d,[{...answer,conditionId:'c1b',recommendationId:'r1b',findingObservedAt:f.today+'T00:00:00Z'},unknown],{inspectionStartedOn:f.today,inspectionEndedOn:f.today});assert.equal(d.execution.technicalReviewRequired,true);
  const queue=await f.exec('execution.list');assert.equal(queue.inspections[0].technicalReviewRequired,true);assert.equal(queue.inspections[0].progress.answered,2);
  // Legacy write paths cannot add arbitrary text, conclude, or duplicate this draft.
  for(const [action,payload] of [['field_items.create',{lvtId:d.execution.id,itemKey:'X',component:'X',condition:'Livre'}],['lvt_items.create',{lvtId:d.execution.id,assetId:f.asset.id,itemKey:'X',description:'Livre'}],['findings.create',{lvtItemId:shell.lvtItemId,assetId:f.asset.id,description:'Livre'}],['inspections.update',{id:i.id,expectedVersion:d.inspection.version,status:'concluida',done:f.today,evidence:'Não concluir'}],['lvts.create',{inspectionId:i.id,assetId:f.asset.id}],['measurements.create',{inspectionId:i.id,assetId:f.asset.id}]])await assert.rejects(f.exec(action,{...payload,requestId:randomUUID()}),{code:'42501'});

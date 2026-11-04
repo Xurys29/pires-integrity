@@ -51,20 +51,21 @@ async function answerWithPhoto(f,d){
  const src=await original(f,'image_jpeg'),photo=await f.callOwner('photos.create',{assetId:f.asset.id,lvtItemId:d.execution.items[0].lvtItemId,sourceId:src.id,locator:{section:'ITEM SINTÉTICO 1'},caption:'FOTO SINTÉTICA DE MARCO'});
  return {catalogItemId:'marco-item',itemKey:'1',conditionId:'condition-a',recommendationId:'recommendation-a',notCovered:false,photoIds:[photo.id]};
 }
-function savePayload(d,observedOn,answers,extra={}){return {inspectionId:d.inspection.id,expectedVersion:d.execution.version,requestId:randomUUID(),observedOn,answers,...extra};}
+function savePayload(d,observedOn,answers,extra={}){return {inspectionId:d.inspection.id,expectedVersion:d.execution.version,requestId:randomUUID(),observedOn,inspectionStartedOn:observedOn,inspectionEndedOn:observedOn,answers,...extra};}
 const save=(f,d,observedOn,answers,extra={})=>f.callOwner('execution.save',savePayload(d,observedOn,answers,extra));
 function assertAnchor(record,d,date,sourceVersion=d.execution.version){
- assert.deepEqual(record.deadlineAnchor,{event:'inspection_performed',date:date??null,status:date?'declared':'pending_observed_on',inspectionId:d.inspection.id,executionId:d.execution.id,executionVersion:sourceVersion});
+ const completed=Object.hasOwn(d.execution,'inspectionEndedOn');
+ assert.deepEqual(record.deadlineAnchor,{event:completed?'inspection_completed':'inspection_performed',date:date??null,status:date?'declared':completed?'pending_inspection_end':'pending_observed_on',inspectionId:d.inspection.id,executionId:d.execution.id,executionVersion:sourceVersion});
 }
 async function manualDue(f,rti){
- return f.callOwner('rtis.update',{id:rti.id,expectedVersion:rti.version,requestId:randomUUID(),due:f.due,evidence:'Prazo MANUAL exclusivo de fixture; sem regra, matriz ou cálculo de prazo.'});
+ return f.callOwner('rtis.update',{id:rti.id,expectedVersion:rti.version,requestId:randomUUID(),due:f.due,deadlineBasis:rti.deadlineAnchor,evidence:'Prazo MANUAL exclusivo de fixture; sem regra, matriz ou cálculo de prazo.'});
 }
 
 test('anchor: pending date is never planning/current date; missing-date gates and legacy metadata backfill',async t=>{
  const f=await fixture(t);await catalog(f);let d=await f.start();assert.equal(d.inspection.planned,f.planned);
  assertAnchor(d.execution,d,null);assert.equal(d.execution.observedOn,undefined);
  const a=await answerWithPhoto(f,d),beforeVersion=d.execution.version;
- await assert.rejects(save(f,d,null,[a]),{code:'22023'});
+ await assert.rejects(save(f,d,f.planned,[a]),{code:'22023'});
  assert.equal((await f.records(d.inspection.id)).rti,undefined);
  assert.equal((await f.callOwner('execution.get',{inspectionId:d.inspection.id})).execution.version,beforeVersion);
  d=await save(f,d,null,[{...a,recommendationId:null}]);assertAnchor(d.execution,d,null);assert.equal(d.execution.status,'rascunho');
@@ -133,7 +134,7 @@ test('anchor: recommendation withdrawal preserves RTI/manual deadline and refres
  assert.equal(rec.state.rti.filter(r=>r.inspectionId===d.inspection.id).length,1);
 });
 
-test('anchor: withdrawn pending date stays pending after manual due and no-op; historical recommendation is not current input',async t=>{
+test('anchor: withdrawn pending date rejects manual due and remains pending on no-op; historical recommendation is not current input',async t=>{
  const f=await fixture(t);await catalog(f);let d=await f.start();const a=await answerWithPhoto(f,d);
  d=await save(f,d,f.observed,[a]);const initial=await f.records(d.inspection.id);
  const withdrawal={...a,recommendationId:null};
@@ -141,12 +142,12 @@ test('anchor: withdrawn pending date stays pending after manual due and no-op; h
  assertAnchor(rec.rti,d,null);assertAnchor(rec.finding,d,null);assert.equal(rec.rti.recommendationWithdrawn,true);assert.notEqual(rec.rti.deadlineReviewRequired,true);
  assert.equal(rec.rti.sourceDate,f.observed,'historical source date remains distinct from a deliberately pending anchor');
  assert.equal(rec.rti.recommendationId,'recommendation-a','historical recommendation remains available for technical review');
- await manualDue(f,rec.rti);
+ await assert.rejects(manualDue(f,rec.rti),{code:'22023'});
  d=await save(f,d,null,[withdrawal]);rec=await f.records(d.inspection.id);
  assertAnchor(d.execution,d,null);assertAnchor(rec.rti,d,null);assertAnchor(rec.finding,d,null);
- assert.equal(rec.rti.due,f.due);assert.notEqual(rec.rti.deadlineReviewRequired,true,'same absent date and withdrawn selection must not create new deadline invalidation');
+ assert.equal(rec.rti.due,undefined);assert.notEqual(rec.rti.deadlineReviewRequired,true,'same absent date and withdrawn selection must not create new deadline invalidation');
  d=await save(f,d,f.changedObserved,[withdrawal]);rec=await f.records(d.inspection.id);
- assertAnchor(rec.rti,d,f.changedObserved);assert.equal(rec.rti.deadlineReviewRequired,true);assert.equal(rec.rti.due,f.due);
+ assertAnchor(rec.rti,d,f.changedObserved);assert.notEqual(rec.rti.deadlineReviewRequired,true);assert.equal(rec.rti.due,undefined);
  assert.equal(rec.rti.id,initial.rti.id);assert.equal(rec.finding.id,initial.finding.id);
 });
 

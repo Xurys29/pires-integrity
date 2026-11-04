@@ -75,3 +75,27 @@ test('Edge handshake: tenantless status does not advertise a selected execution 
  const r=await f.send('status',{tenant:false});assert.equal(r.status,200);assert.equal(r.data.tenant,null);assert.equal(r.data.accessMode,null);
  assert.equal(r.data.capabilities.inspectionExecutionVersion,0);assert.equal(r.data.capabilities.inspectorWorkspaceVersion,0);assert.equal(r.data.capabilities.assignedExecutionWrite,false);
 });
+
+test('Edge handshake: manual deadline decisions require their exact SQL version before business RPC',async()=>{
+ for(const version of [undefined,0,'1',2]){
+  const f=await fixture({inspectionScopeVersion:1,inspectorWorkspaceVersion:1,rtiDeadlineDecisionVersion:version},'admin');
+  assert.equal((await f.send()).data.capabilities.rtiDeadlineDecisionVersion,0);
+  f.calls.length=0;const r=await f.send('companies/'+OWNER+'/rti-updates',{method:'POST',body:{id:ITEM,requestId:REQUEST,due:'2026-12-01',deadlineBasis:{event:'inspection_performed'}}});
+  assert.equal(r.status,503);assert.equal(r.data.code,'deadline_backend_unavailable');assert.ok(f.calls.every(x=>x.args.p_action==='access.get'));
+  const legacy=await f.send('companies/'+OWNER+'/rti-updates',{method:'POST',body:{id:ITEM,requestId:REQUEST,evidence:'ACOMPANHAMENTO SOMENTE FIXTURE'}});assert.equal(legacy.status,200);
+ }
+ const f=await fixture({inspectionScopeVersion:1,inspectorWorkspaceVersion:1,rtiDeadlineDecisionVersion:1},'admin');
+ assert.equal((await f.send()).data.capabilities.rtiDeadlineDecisionVersion,1);
+ const r=await f.send('companies/'+OWNER+'/rti-updates',{method:'POST',body:{id:ITEM,requestId:REQUEST,due:'2026-12-01',deadlineBasis:{event:'inspection_performed'}}});assert.equal(r.status,200);assert.equal(r.data.action,'rtis.update');assert.deepEqual(r.data.deadlineBasis,{event:'inspection_performed'});
+ const partial=await fixture({rtiDeadlineDecisionVersion:1},'admin');assert.equal((await partial.send()).data.capabilities.rtiDeadlineDecisionVersion,0);
+});
+
+test('Edge handshake: inspection timeline fields require an explicit numeric SQL capability',async()=>{
+ for(const version of [undefined,0,'1',2]){
+  const f=await fixture({inspectionScopeVersion:1,inspectorWorkspaceVersion:1,inspectionTimelineVersion:version},'admin');
+  assert.equal((await f.send()).data.capabilities.inspectionTimelineVersion,0);f.calls.length=0;
+  const r=await f.send('companies/'+OWNER+'/execution-save',{method:'POST',body:{inspectionId:INSPECTION,inspectionEndedOn:'2026-11-02'}});assert.equal(r.status,503);assert.equal(r.data.code,'inspection_timeline_unavailable');assert.ok(f.calls.every(x=>x.args.p_action==='access.get'));
+ }
+ const f=await fixture({inspectionScopeVersion:1,inspectorWorkspaceVersion:1,inspectionTimelineVersion:1},'admin');assert.equal((await f.send()).data.capabilities.inspectionTimelineVersion,1);
+ const r=await f.send('companies/'+OWNER+'/execution-save',{method:'POST',body:{inspectionId:INSPECTION,inspectionStartedOn:'2026-11-01',inspectionEndedOn:'2026-11-02'}});assert.equal(r.status,200);assert.equal(r.data.action,'execution.save');
+});

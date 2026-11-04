@@ -229,7 +229,7 @@ test("status sem tenant também exige par piloto SQL e tenants expõe somente pa
   });
   const status = await h.send("status");
   assert.equal(status.status, 200);
-  assert.deepEqual(status.data.capabilities, { workflowVersion: 2, inspectionExecutionVersion: 0, inspectorWorkspaceVersion: 0, assignedExecutionWrite: false, xlsx: true, pdf: false, xls: false, operations: true, documentOriginals: true, photoOriginals: true, xlsxMaxBytes: 8 * 1024 * 1024, documentMaxBytes: 32 * 1024 * 1024, photoMaxBytes: 8 * 1024 * 1024, write: false });
+  assert.deepEqual(status.data.capabilities, { workflowVersion: 2, inspectionExecutionVersion: 0, inspectorWorkspaceVersion: 0, inspectionTimelineVersion: 0, rtiDeadlineDecisionVersion: 0, assignedExecutionWrite: false, xlsx: true, pdf: false, xls: false, operations: true, documentOriginals: true, photoOriginals: true, xlsxMaxBytes: 8 * 1024 * 1024, documentMaxBytes: 32 * 1024 * 1024, photoMaxBytes: 8 * 1024 * 1024, write: false });
   assert.equal(status.data.pilot, true);
   assert.equal(status.data.user_id, USER);
   assert.deepEqual(h.events.filter(e => e.kind === "userRpc").map(e => [e.name, e.args?.p_tenant]), [

@@ -64,6 +64,16 @@
     if (record.clientId && record.clientId !== scope.ownerId || record.module && record.module !== "integridade") throw Error("Registro pertence a outro cliente ou módulo.");
   }
   const sorted = (rows) => [...rows].sort((a, b) => a.id.localeCompare(b.id));
+  function declaredDate(value) {
+    if (value === undefined || value === null) return null;
+    if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isFinite(Date.parse(value + "T00:00:00Z")) || new Date(value + "T00:00:00Z").toISOString().slice(0, 10) !== value) throw Error("Data declarada da inspeção inválida.");
+    return value;
+  }
+  function findingTime(value) {
+    if (value === undefined || value === null) return null;
+    if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value) || !Number.isFinite(Date.parse(value))) throw Error("Data/hora do achado exige ISO 8601 com fuso explícito.");
+    return value;
+  }
   function outcomeOf(execution) {
     if (execution.outcome === undefined || execution.outcome === null) return "pending";
     if (!outcomes.has(execution.outcome)) throw Error("Resultado declarado da inspeção inválido.");
@@ -138,6 +148,7 @@
     if (company?.id !== scope.ownerId || contract?.id !== scope.contractId || system?.id !== scope.systemId || asset?.id !== scope.assetId || inspection?.id !== scope.inspectionId || execution?.id !== scope.executionId) throw Error("Identidades canônicas divergentes.");
     sameScope(asset, scope, ["systemId"]); sameScope(inspection, scope, ["contractId", "systemId", "assetId"]); sameScope(execution, scope, ["contractId", "systemId", "assetId", "inspectionId"]);
     if (inspection.type !== "visual" || execution.type !== "visual" || execution.recordClass !== "field_lvt" || execution.executionVersion !== 1 || inspection.module !== "integridade") throw Error("Este rascunho aceita somente a execução visual explícita; espessura tem documento separado.");
+    declaredDate(execution.inspectionStartedOn); declaredDate(execution.inspectionEndedOn);
     if (inspection.campaignId !== execution.campaignId || execution.inspectorProfessionalId && inspection.assigneeProfessionalId !== execution.inspectorProfessionalId) throw Error("Campanha ou responsável diverge da atividade.");
     validateCatalogBinding(content);
     const shells = execution.items || [], answers = execution.answers || [];
@@ -154,10 +165,12 @@
     }
     const findingMap = new Map(findings.map((row) => [row.id, row]));
     for (const rti of rtis) if (!findingMap.has(rti.findingId) || findingMap.get(rti.findingId).lvtItemId !== rti.lvtItemId) throw Error("RTI sem achado canônico do mesmo item.");
+    for (const row of [...items, ...findings, ...rtis]) findingTime(row.findingObservedAt);
     let treatmentCount = 0;
     for (const answer of answers) {
       if (!catalogIds.has(answer.catalogItemId) || answerIds.has(answer.catalogItemId) || typeof answer.notCovered !== "boolean" || !Array.isArray(answer.photoIds)) throw Error("Resposta sem identidade ou escolha explícita."); answerIds.add(answer.catalogItemId);
       const shell = shells.find((entry) => entry.catalogItemId === answer.catalogItemId), item = itemMap.get(shell.lvtItemId), definition = catalog.items?.find((entry) => entry.id === answer.catalogItemId);
+      if (findingTime(answer.findingObservedAt) !== findingTime(item.findingObservedAt)) throw Error("Data/hora do achado diverge da resposta e do item salvos.");
       if (catalog.status !== "verified" || catalog.id !== execution.catalogId || !definition || answer.itemKey !== item.itemKey) throw Error("Resposta não corresponde ao catálogo da execução.");
       if ((item.conditionId || null) !== (answer.conditionId || null) || (item.recommendationId || null) !== (answer.recommendationId || null)) throw Error("Escolhas salvas do item divergem da execução.");
       if (answer.notCovered && (answer.conditionId || answer.recommendationId)) throw Error("Condição não contemplada não admite escolha presumida.");
@@ -219,7 +232,7 @@
     if (field(inspectionRaw, "id") !== inspection.id || field(executionRaw, "id") !== execution.id || field(inspectionRaw, "version") !== inspection.version || field(executionRaw, "version") !== execution.version) throw Error("A execução mudou durante a consulta. Atualize antes de conferir.");
     // Approval-like display fields are never trusted by this draft. Functional
     // execution data, however, must agree with the saved canonical snapshot.
-    for (const key of [...scopeKeys, "module", "campaignId", "recordClass", "executionVersion", "type", "status", "catalogId", ...bindingKeys, "items", "answers", "observedOn", "inspector", "inspectorProfessionalId", "technicalReviewRequired", "outcome", "coverage"])
+    for (const key of [...scopeKeys, "module", "campaignId", "recordClass", "executionVersion", "type", "status", "catalogId", ...bindingKeys, "items", "answers", "observedOn", "inspectionStartedOn", "inspectionEndedOn", "inspector", "inspectorProfessionalId", "technicalReviewRequired", "outcome", "coverage"])
       if (canonical(field(executionRaw, key) ?? null) !== canonical(field(execution, key) ?? null)) throw Error("Conteúdo da execução diverge do snapshot salvo; atualize a conferência.");
     const shells = arrayShape(field(executionRaw, "items") || [], "itens da execução"), answers = arrayShape(field(executionRaw, "answers") || [], "respostas da execução");
     if (shells.length > 1000 || answers.length > 1000) throw Error("Itens ou respostas da execução excedem o limite.");
@@ -335,7 +348,15 @@
     if (typeof Ctor !== "function") throw Error("Gerador de PDF indisponível.");
     const doc = new Ctor({ unit: "mm", format: "a4", compress: true }), M = 16, WIDTH = 178, BOTTOM = 277;
     let y = 36, imageBytes = 0, decodedPixels = 0;
-    const embeddedPhotoIds = [], pending = pendingFor(content);
+    const embeddedPhotoIds = [], pending = pendingFor(content), numberedItems = sorted(content.items);
+    // Derived only for this copy of the frozen content. Never write numbering to
+    // records, originals or the saved conference; their legacy digest is unchanged.
+    const photoReferences = numberedItems.flatMap((item) => sorted(content.photos.filter((photo) => photo.lvtItemId === item.id)).map((photo) => ({
+      photoId: photo.id, photoVersion: photo.version, itemId: item.id, itemKey: item.itemKey,
+      pointReferences: sorted((content.points || []).filter((point) => point.lvtItemId === item.id && point.photoIds.includes(photo.id))).map((point) => ({ id: point.id, version: point.version, label: point.label, locationStatus: point.locationStatus })),
+      rtiReferences: sorted(content.rtis.filter((rti) => rti.lvtItemId === item.id && Array.isArray(rti.photoIds) && rti.photoIds.includes(photo.id))).map((rti) => ({ id: rti.id, version: rti.version })),
+    }))).map((reference, index) => ({ label: "Foto " + String(index + 1).padStart(2, "0"), ...reference }));
+    const photoReferenceById = new Map(photoReferences.map((reference) => [reference.photoId, reference]));
     function checkedImage(image, mandatoryCoverage = false) {
       const bytes = image?.bytes;
       if (!(bytes instanceof Uint8Array) || !bytes.length || bytes.length > MAX_IMAGE_BYTES || !["image/jpeg", "image/png"].includes(image.mime) || image.mime === "image/png" && ![137, 80, 78, 71, 13, 10, 26, 10].every((byte, index) => bytes[index] === byte) || image.mime === "image/jpeg" && !(bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255)) throw Error("Foto fora dos limites ou do formato aceito para o item.");
@@ -368,6 +389,11 @@
     paragraph("Imagens anexadas não comprovam assinatura ou ato técnico. Gerar este arquivo não encerra RTIs.");
     heading("Identificação do recorte");
     for (const [label, value] of [["Cliente", content.company.name], ["Contrato / projeto", content.contract.name], ["Sistema", content.system.name], ["TAG", content.asset.tag], ["Identificação", content.asset.identification || content.asset.description], ["Inspeção", content.scope.inspectionId], ["Execução visual / LVT", content.scope.executionId], ["Versão salva da execução", content.execution.version], ["Data observada declarada", content.execution.observedOn], ["Responsável cadastrado na execução (sem assinatura)", content.execution.inspector]]) paragraph(label + ": " + present(value));
+    if (own(content.execution, "inspectionStartedOn") || own(content.execution, "inspectionEndedOn")) {
+      paragraph("Início declarado da inspeção: " + present(content.execution.inspectionStartedOn));
+      paragraph("Fim declarado da inspeção: " + present(content.execution.inspectionEndedOn));
+      paragraph("Horário final da inspeção: não registrado; nenhum horário ou fuso é inferido da data final.", false, 9);
+    }
     paragraph("IDs internos do recorte: cliente " + content.scope.ownerId + " | contrato " + content.scope.contractId + " | sistema " + content.scope.systemId + " | ativo " + content.scope.assetId, false, 8);
     paragraph("Geração desta cópia de conferência: " + generatedAt);
     paragraph("Digest do conteúdo e versões (não é assinatura, número ou revisão técnica): " + record.contentDigest, false, 8);
@@ -383,26 +409,32 @@
     if (coverage) {
       paragraph("Cobertura DECLARADA pelo inspetor: " + (coverage.extent === "declared_section" ? "trecho declarado" : "linha integral declarada"), true);
       paragraph("Limites / extensão inspecionada informados: " + coverage.description);
-      paragraph("Fotos selecionadas como evidência da cobertura: " + coverage.photoIds.join(", "), false, 8);
+      paragraph("Fotos selecionadas como evidência da cobertura: " + photoReferences.filter((reference) => coverage.photoIds.includes(reference.photoId)).map((reference) => reference.label).join(", "), false, 8);
       paragraph("A extensão foi declarada, sem inferência automática das imagens. Foto parcial não comprova por si só a inspeção da linha integral.");
     } else paragraph("Cobertura não declarada. Nenhum trecho ou linha integral é presumido a partir das fotos.");
     if (goodCondition) paragraph("Nenhuma RTI desta execução. A declaração permanece sujeita à revisão técnica; campanhas e próximas inspeções continuam no planejamento.");
     heading("Itens, escolhas e evidências");
-    for (const item of content.items) {
+    if (photoReferences.length) paragraph("A numeração das fotos identifica as evidências desta cópia do conteúdo congelado. Não indica posição no desenho, número de relatório ou revisão técnica.", false, 9);
+    for (const item of numberedItems) {
       const answer = content.execution.answers?.find((row) => row.catalogItemId === item.catalogItemId), definition = content.catalog.items?.find((row) => row.id === item.catalogItemId), condition = definition?.conditions?.find((row) => row.id === answer?.conditionId), recommendation = definition?.recommendations?.find((row) => row.id === answer?.recommendationId);
       heading("Item " + present(item.itemKey) + " · " + present(item.component));
       paragraph("ID do item: " + item.id, false, 8);
       const point = (content.points || []).find((entry) => entry.id === item.pointId);
       if (point) { paragraph("Ponto de campo informado: " + point.label + " · ID " + point.id + " · versão " + point.version, false, 9); paragraph("Localização no isométrico: pendente. A referência de campo não atribui posição ou geometria ao desenho."); }
       paragraph("Condição selecionada: " + (answer?.notCovered ? "Não contemplada; gestão técnica pendente" : present(condition ? item.description : null, "Resposta pendente; nenhuma condição presumida")));
+      if (item.findingObservedAt !== undefined && item.findingObservedAt !== null) paragraph("Data/hora do achado (fuso declarado preservado): " + item.findingObservedAt, false, 9);
       if (condition) paragraph("Fonte da condição: " + sourceText(condition.source), false, 8);
       const savedFinding = content.findings.find((row) => row.lvtItemId === item.id && row.recommendationId === answer?.recommendationId);
       paragraph("Recomendação selecionada: " + present(recommendation ? recommendation.requiresTreatment === false ? item.recommendation : savedFinding?.recommendation : null, "Não selecionada; ausência não significa aprovação"));
       if (recommendation) paragraph("Fonte da recomendação: " + sourceText(recommendation.source), false, 8);
       if (recommendation?.requiresTreatment === false) paragraph("Escolha documental sem tratativa: não cria nova RTI.");
       else if (recommendation && recommendation.requiresTreatment !== true) paragraph("Escolha legada sem classificação de tratativa: revisão técnica pendente.");
-      for (const photo of content.photos.filter((row) => row.lvtItemId === item.id)) {
-        paragraph("Foto do mesmo item " + present(item.itemKey) + " · ID " + photo.id + " · " + present(photo.caption), false, 9);
+      for (const photo of sorted(content.photos.filter((row) => row.lvtItemId === item.id))) {
+        const reference = photoReferenceById.get(photo.id);
+        paragraph(reference.label + " · ID " + photo.id + " · item " + present(item.itemKey) + " [" + item.id + "] · " + present(photo.caption), false, 9);
+        paragraph("Ponto de campo vinculado à foto: " + (reference.pointReferences.map((point) => point.label + " [" + point.id + "] · versão " + point.version).join("; ") || "não informado"), false, 8);
+        if (reference.pointReferences.length) paragraph("Localização no desenho pendente; o ponto informado não atribui posição ou geometria ao isométrico.", false, 8);
+        paragraph("RTI com vínculo explícito à foto (ID interno): " + (reference.rtiReferences.map((rti) => rti.id).join(", ") || "não informado"), false, 8);
         const image = imageOf(photo.id);
         if (!image) { pending.push("Foto " + photo.id + ": imagem não carregada nesta cópia."); paragraph("Imagem pendente nesta cópia; vínculo preservado."); continue; }
         const checked = requiredImages.get(photo.id) || checkedImage(image), bytes = checked.bytes, p = checked.properties;
@@ -413,11 +445,28 @@
       }
       for (const rti of content.rtis.filter((row) => row.lvtItemId === item.id)) {
         paragraph("RTI vinculada (ID interno): " + rti.id, true);
+        const rtiPhotos = photoReferences.filter((reference) => reference.rtiReferences.some((linked) => linked.id === rti.id));
+        if (rtiPhotos.length) paragraph("Evidências fotográficas vinculadas à RTI: " + rtiPhotos.map((reference) => reference.label).join(", "), false, 9);
         paragraph("Recomendação registrada na RTI: " + present(rti.recommendation));
         if (rti.recommendationWithdrawn) paragraph("Recomendação retirada no rascunho; RTI preservada para gestão técnica.");
         paragraph("Prazo manual registrado: " + present(rti.due, "Não definido"));
         paragraph("Prazo histórico na fonte: " + present(rti.sourceDue, "Não informado"));
-        paragraph("Marco observado declarado: " + present(rti.deadlineAnchor?.date, "Pendente"));
+        if (rti.findingObservedAt !== undefined && rti.findingObservedAt !== null) paragraph("Data/hora do achado vinculada à RTI: " + rti.findingObservedAt, false, 9);
+        if (rti.deadlineAnchor?.event === "inspection_completed") paragraph("Marco do prazo — fim declarado da inspeção: " + present(rti.deadlineAnchor.date, "Pendente"));
+        else {
+          paragraph("Marco observado declarado: " + present(rti.deadlineAnchor?.date, "Pendente"));
+          if (rti.deadlineAnchor?.event === "inspection_performed") paragraph("Marco legado de inspeção realizada; esta data não confirma o fim da inspeção.", false, 9);
+        }
+        const decision = rti.deadlineDecision;
+        if (decision?.schemaVersion === 1 && decision.mode === "manual") {
+          paragraph("Decisão manual de prazo registrada; não constitui aprovação técnica.", true, 9);
+          paragraph("Prazo da decisão manual: " + present(decision.due));
+          paragraph("Justificativa registrada: " + present(decision.justification));
+          paragraph("Registro da decisão manual: " + present(decision.at) + " · versão base da RTI: " + present(decision.basisRtiVersion), false, 9);
+          const basis = decision.deadlineAnchor, label = basis?.event === "inspection_completed" ? "fim declarado da inspeção" : basis?.event === "inspection_performed" ? "inspeção realizada (marco legado; não confirma o fim)" : "evento não identificado como fim da inspeção";
+          paragraph("Marco usado na decisão manual: " + label + " · " + present(basis?.date, "Pendente"), false, 9);
+          if (decision.policyStatus === "unlinked") paragraph("Decisão manual sem vínculo com política ou versão aprovada da matriz de risco.", false, 9);
+        }
         if (rti.deadlineReviewRequired) paragraph("Prazo registrado exige revisão técnica após alteração da base.");
         paragraph("Versão e regra da matriz Pires não vinculadas a esta RTI. Nenhum prazo é calculado neste rascunho. A fonte histórica não confirma a situação atual.", false, 9);
       }
@@ -432,6 +481,7 @@
       metadata: deepFreeze({ schema: SCHEMA, draft: true, canIssue: false, technicalNumber: null, technicalRevision: null, technicalApproval: "pending", signatures: [], contentDigest: record.contentDigest, scope: content.scope, outcome,
         ...(content.catalogBinding ? { catalogBinding: content.catalogBinding } : {}),
         outcomeStatus: !own(content.execution, "outcome") || content.execution.outcome === null ? "legacy_unclassified" : "declared_pending_technical_review", coverage: coverage ? { ...coverage, basis: "inspector_declared_not_inferred_from_photos" } : null,
+        photoNumbering: { version: 1, basis: "frozen_content_item_id_then_photo_id", contentDigest: record.contentDigest, references: photoReferences },
         pointReferences: (content.points || []).map((point) => ({ id: point.id, version: point.version, label: point.label, locationStatus: point.locationStatus })), embeddedPhotoIds, pending: [...new Set(pending)] }) };
   }
   return Object.freeze({ SCHEMA, freeze, createPdf });

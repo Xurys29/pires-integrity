@@ -30,8 +30,8 @@ async function fixture(t,{metadata=true}={}){
  await f.db.query('insert into pi_gestao_private.inspection_catalogs(tenant_id,owner_id,id,source_id,source_locator,items,verified_by,verified_at) values($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7,now())',[f.ids.tenantA,f.ownerId,f.catalogId,original.id,JSON.stringify({page:1}),JSON.stringify(f.items),f.ids.adminA]);
  await catalogueMetadata(f,{ownerId:f.ownerId,catalogId:f.catalogId,contractIds:[f.contract.id],assetIds:[f.asset.id]});
  f.photo=async d=>{const s=await f.original();return f.rpc('photos.create',{assetId:f.asset.id,lvtItemId:d.execution.items[0].lvtItemId,sourceId:s.id,locator:{section:randomUUID()},caption:'FOTO EXCLUSIVAMENTE SINTÉTICA'});};
- f.answer=(photoIds=[],extra={})=>({catalogItemId:'synthetic-item',itemKey:'ITEM-SINTÉTICO',conditionId:'good',recommendationId:null,notCovered:false,photoIds,...extra});
- f.payload=(d,answers,extra={})=>({inspectionId:d.inspection.id,expectedVersion:d.execution.version,requestId:randomUUID(),observedOn:f.observed,answers,...extra});
+ f.answer=(photoIds=[],extra={})=>({catalogItemId:'synthetic-item',itemKey:'ITEM-SINTÉTICO',conditionId:'good',recommendationId:null,notCovered:false,photoIds,findingObservedAt:f.observed+'T12:00:00-03:00',...extra});
+ f.payload=(d,answers,extra={})=>({inspectionId:d.inspection.id,expectedVersion:d.execution.version,requestId:randomUUID(),observedOn:f.observed,inspectionStartedOn:f.observed,inspectionEndedOn:f.observed,answers,...extra});
  f.save=(d,answers,extra={})=>f.rpc('execution.save',f.payload(d,answers,extra));
  f.coverage=(photos,extra={})=>({extent:'declared_section',description:'TRECHO SINTÉTICO ENTRE REFERÊNCIAS DECLARADAS',photoIds:photos,...extra});
  f.submit=d=>f.rpc('execution.submit',{inspectionId:d.inspection.id,expectedVersion:d.execution.version,requestId:randomUUID()});
@@ -44,7 +44,7 @@ test('treatment: explicit good conditions require selected photo, observed date 
  const p=await f.photo(d),a=f.answer([p.id]);
  await assert.rejects(f.save(d,[a],{outcome:'good_condition'}),{code:'22023'});
  await assert.rejects(f.save(d,[a],{outcome:'good_condition',coverage:f.coverage([])}),{code:'22023'});
- await assert.rejects(f.save(d,[a],{observedOn:null,outcome:'good_condition',coverage:f.coverage([p.id])}),{code:'22023'});
+ await assert.rejects(f.save(d,[a],{observedOn:null,inspectionStartedOn:null,inspectionEndedOn:null,outcome:'good_condition',coverage:f.coverage([p.id])}),{code:'22023'});
  d=await f.save(d,[a],{outcome:'good_condition',coverage:f.coverage([p.id])});
  assert.equal(d.execution.outcome,'good_condition');assert.equal(d.execution.answers[0].conditionSupportsGoodCondition,true);assert.equal(d.execution.answers[0].requiresTreatment,null);assert.deepEqual(d.execution.coverage,f.coverage([p.id]));
  let state=await f.state();assert.equal(state.rti.length,0);assert.equal(state.finding.length,0);assert.equal(state.contract.length,1);assert.equal(state.campaign.length,before.campaign.length);assert.equal(state.campaign[0].id,f.campaign.id);assert.equal(state.campaign[0].status,before.campaign[0].status);
@@ -109,7 +109,7 @@ test('treatment: unclassified legacy recommendation keeps its RTI and marks revi
 });
 
 test('treatment: withdrawal preserves historical action/photos/manual due and same point/RTI; it does not authorize good conditions or close RTI',async t=>{
- const f=await fixture(t);let d=await f.start(),p=await f.photo(d),a=f.answer([p.id],{conditionId:'other',recommendationId:'treat',pointLabel:'PONTO SINTÉTICO ORIGINAL'});d=await f.save(d,[a],{outcome:'treatment_required'});const original=(await f.state()).rti[0];await f.rpc('rtis.update',{id:original.id,expectedVersion:original.version,requestId:randomUUID(),due:f.due,evidence:'Prazo MANUAL justificado exclusivamente no ensaio, sem regra automática.'});
+ const f=await fixture(t);let d=await f.start(),p=await f.photo(d),a=f.answer([p.id],{conditionId:'other',recommendationId:'treat',pointLabel:'PONTO SINTÉTICO ORIGINAL'});d=await f.save(d,[a],{outcome:'treatment_required'});const original=(await f.state()).rti[0];await f.rpc('rtis.update',{id:original.id,expectedVersion:original.version,requestId:randomUUID(),due:f.due,deadlineBasis:original.deadlineAnchor,evidence:'Prazo MANUAL justificado exclusivamente no ensaio, sem regra automática.'});
  const q=await f.photo(d);d=await f.save(d,[f.answer([q.id],{recommendationId:'none',pointLabel:'PONTO CORRIGIDO SOMENTE FIXTURE'})],{outcome:'technical_review'});const state=await f.state(),rti=state.rti[0],finding=state.finding[0];assert.equal(rti.id,original.id);assert.equal(rti.status,'aberta');assert.equal(rti.recommendationId,'treat');assert.equal(rti.recommendationWithdrawn,true);assert.equal(rti.historicalEvidencePreserved,true);assert.equal(rti.technicalReviewRequired,true);assert.equal(rti.due,f.due);assert.equal(rti.pointId,original.pointId);assert.deepEqual(rti.photoIds,[p.id]);
  assert.equal(rti.pointVersion,d.points[0].version);assert.equal(finding.pointVersion,d.points[0].version);assert.equal(finding.pointLabel,d.points[0].label);assert.equal(finding.historicalEvidencePreserved,true);assert.deepEqual(finding.photoIds,[p.id]);assert.deepEqual(d.points[0].photoIds,[q.id]);assert.ok(d.points[0].version>original.pointVersion);
  await assert.rejects(f.save(d,[f.answer([q.id],{recommendationId:'none'})],{outcome:'good_condition',coverage:f.coverage([q.id])}),{code:'22023'});assert.equal((await f.state()).rti[0].status,'aberta');

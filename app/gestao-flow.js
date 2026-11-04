@@ -59,7 +59,8 @@
     const data = () => context().state || {};
     const records = (kind) => data()[kind] || data()[{ finding: "findings", relation: "relations" }[kind]] || [];
     const assets = () => data().asset || [];
-    const contracts = (module) => (data().contract || []).filter((contract) => !commercialReference(contract) && contract.modules?.includes(module));
+    const contracts = (module) => (data().contract || []).filter((contract) => !commercialReference(contract) && (contract.modules?.includes(module) ||
+      module === "rtis" && ["fila","detalhe","acoes","relatorios"].includes(current?.view) && (data().rti || []).some(rti => rti.contractId === contract.id && (contract.assetIds || []).includes(rti.assetId) && assets().some(asset => asset.id === rti.assetId))));
     const commercialReferences = () => (data().contract || []).filter(commercialReference);
     const notice = (parent, text) => parent.append(el("p", text, "notice"));
     const operational = () => context().mode === "connected" && context().capabilities?.operations === true;
@@ -485,6 +486,10 @@
       const cause = typeof rti?.cause === "object" ? rti.cause : null,
         reinspection = typeof rti?.reinspection === "string" ? rti.reinspection : rti?.reinspection && [rti.reinspection.description, rti.reinspection.plannedDate].filter(Boolean).join(" · ");
       fields(details, [["Situação atual", root.PiresAssetCards?.describeRti(rti).statusLabel || "Atualidade desconhecida"], ["Causa", cause?.description], ["Confirmação da causa", cause?.status === "confirmed" ? "Causa registrada como confirmada" : "Em investigação / não confirmada"], ["Fonte da causa", cause?.evidence || cause?.source], ["Prazo manual registrado", rti?.due || "Pendente de definição — sem data calculada"], ["Prazo histórico informado na fonte", rti?.sourceDue || "Não informado"], ["Marco: inspeção realizada", rti?.deadlineAnchor?.date || "Data de inspeção pendente"], ["Conferência do prazo", rti?.deadlineReviewRequired ? "Revisão necessária após alteração na inspeção ou recomendação; prazo anterior preservado" : rti?.due ? "Data registrada manualmente; conferir justificativa" : "Pendente de definição pela gestão técnica"], ["Matriz de risco Pires", "Versão e regra não vinculadas a esta RTI; nenhum prazo calculado automaticamente"], ["Ações necessárias", rti?.actions?.map((action) => typeof action === "string" ? action : action.description).filter(Boolean).join("; ") || "Pendente de definição"], ["Reinspeção", reinspection || "Pendente de definição"], ["Evidência de encerramento", rti?.closureEvidence]]);
+      if(rti?.deadlineDecision?.mode==='manual'){
+        const decision=section(container,"Decisão manual de prazo registrada");
+        fields(decision,[["Data definida",rti.deadlineDecision.due],["Justificativa",rti.deadlineDecision.justification],["Marco da decisão",rti.deadlineDecision.deadlineAnchor?.date],["Versão da inspeção usada",rti.deadlineDecision.deadlineAnchor?.executionVersion],["Registrada em",rti.deadlineDecision.at],["Regra automática", "Não aplicada; registro manual vinculado à inspeção"]]);
+      }
       section(container, "Relatório padrão de RTI", "Estrutura prevista: identificação e origem, achado, evidências, causa confirmada ou em investigação, prazo documentado, ações, reinspeção e histórico. A emissão será validada no módulo; nenhum relatório é gerado por esta tela.");
       const history = section(container, "Histórico e rastreio da origem");
       fields(history, [["ID canônico da RTI", rti?.id], ["Data de registro", rti?.createdAt], ["Data de encerramento", rti?.closedAt]]);
@@ -767,7 +772,7 @@
       } else link(breadcrumb, "Gestão de Ativos", "", "inicio", "_", "");
 
       if (current.module) { breadcrumb.append(el("span", "/")); link(breadcrumb, modules[current.module].name, current.module, "inicio", "_", ""); }
-      if (current.contractId) { const project = contracts(current.module).find(c => c.id === current.contractId); breadcrumb.append(el("span", "/")); link(breadcrumb, project?.name || "Projeto", current.module, "painel", "_", current.contractId); }
+      if (current.contractId) { const project = contracts(current.module).find(c => c.id === current.contractId),projectModule=project?.modules?.includes(current.module)?current.module:project?.modules?.[0]||current.module; breadcrumb.append(el("span", "/")); link(breadcrumb, project?.name || "Projeto", projectModule, "painel", "_", current.contractId); }
       if (current.module && current.view !== "inicio") breadcrumb.append(el("span", " / " + (modules[current.module].views.find(([key]) => key === current.view)?.[1] || (current.view === "execucao" ? "Execução da inspeção" : current.view === "painel" ? "Painel" : current.view === "importar" ? "Importação" : current.view === "planejamento" ? "Planejamento" : current.view === "book" ? "Book do ativo" : current.view === "escopo" ? "Escopo do contrato" : "Consulta do registro"))));
       back.hidden = !current.module;
       back.onclick = () => {

@@ -36,7 +36,7 @@ async function fixture(t,{withdrawBeforeClose=false,legacy=false}={}){
  f.photoId=photo.data.photo.id;f.otherPhotoId=other.data.photo.id;
  const dates=(await f.db.query('select current_date::text today,(current_date-4)::text observed,(current_date-3)::text changed,(current_date+45)::text due')).rows[0];Object.assign(f,dates);
  f.answer={catalogItemId:item.id,itemKey:item.itemKey,conditionId:'action-scoped',recommendationId:'treat-scoped',notCovered:false,photoIds:[f.photoId],...(legacy?{}:{pointLabel:'PONTO SINTÉTICO ORIGINAL'})};
- f.payload=(d=f.detail,answers=[f.answer],extra={})=>({inspectionId:d.inspection.id,expectedVersion:d.execution.version,requestId:randomUUID(),observedOn:f.observed,answers,outcome:legacy?'pending':'treatment_required',...extra});
+ f.payload=(d=f.detail,answers=[f.answer],extra={})=>({inspectionId:d.inspection.id,expectedVersion:d.execution.version,requestId:randomUUID(),observedOn:f.observed,inspectionStartedOn:f.observed,inspectionEndedOn:f.observed,answers,outcome:legacy?'pending':'treatment_required',...extra});
  f.save=(d=f.detail,answers=[f.answer],extra={})=>f.op('execution.save',f.payload(d,answers,extra),f.ids.inspector);
  f.detail=await f.save();
  if(withdrawBeforeClose){
@@ -45,7 +45,7 @@ async function fixture(t,{withdrawBeforeClose=false,legacy=false}={}){
  }
  const rti=(await f.op('state.get')).rti[0];
  const doc=await f.op('documents.create',{assetId:f.asset.id,contractId:f.contract.id,module:'rtis',documentType:'rti',reference:'EVIDÊNCIA DE FECHAMENTO EXCLUSIVAMENTE SINTÉTICA',sourceId:f.catalogOriginal.id,locator:{page:1}});
- f.closed=await f.op('rtis.update',{id:rti.id,expectedVersion:rti.version,requestId:randomUUID(),due:f.due,confirmedOn:f.today,status:'encerrada',evidenceDocumentId:doc.id,evidence:'EVIDÊNCIA E PRAZO MANUAL SOMENTE SINTÉTICOS',reinspection:'REINSPEÇÃO SOMENTE SINTÉTICA'});
+ f.closed=await f.op('rtis.update',{id:rti.id,expectedVersion:rti.version,requestId:randomUUID(),due:f.due,deadlineBasis:rti.deadlineAnchor,confirmedOn:f.today,status:'encerrada',evidenceDocumentId:doc.id,evidence:'EVIDÊNCIA E PRAZO MANUAL SOMENTE SINTÉTICOS',reinspection:'REINSPEÇÃO SOMENTE SINTÉTICA'});
  assert.equal(f.closed.status,'encerrada');
  return f;
 }
