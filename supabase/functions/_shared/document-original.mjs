@@ -420,13 +420,17 @@ function checkJpeg(bytes) {
       if (!frame || length < 6 || !components || components > frame.components || length !== 6 + 2 * components) fail("cabeçalho SOS JPEG inválido.");
       scans++;
       // Read marker boundaries only. Entropy-coded pixels, APP/EXIF and thumbnails remain untouched.
+      // A scan must contain image data: restart/fill markers alone are not pixels.
+      let hasEntropy = false;
       for (; cursor < bytes.length; cursor++) {
-        if (bytes[cursor] !== 255) continue;
+        if (bytes[cursor] !== 255) { hasEntropy = true; continue; }
         let next = cursor + 1;
         while (bytes[next] === 255) next++;
-        if (bytes[next] === 0 || bytes[next] >= 208 && bytes[next] <= 215) { cursor = next; continue; }
+        if (bytes[next] === 0) { hasEntropy = true; cursor = next; continue; }
+        if (bytes[next] >= 208 && bytes[next] <= 215) { cursor = next; continue; }
         break;
       }
+      if (!hasEntropy) fail("scan JPEG sem dados de imagem.");
     }
   }
   fail("fim JPEG ausente.");

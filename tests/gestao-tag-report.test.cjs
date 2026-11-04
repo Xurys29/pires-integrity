@@ -117,3 +117,18 @@ test('colisão do ID selecionado com registro alheio e proveniência selecionada
  await assert.rejects(Report.freeze(f),/ID selecionado colide/);
  const sources=fixture();sources.snapshot.sourceProvenance.push(copy(sources.snapshot.sourceProvenance[0]));await assert.rejects(Report.freeze(sources),/Proveniência selecionada repetida/);
 });
+
+test('cobertura preserva quebras de linha e tabulação permitidas pela ficha sem aceitar outros controles',async()=>{
+ for(const description of ['TRECHO SINTÉTICO A\nLIMITE SINTÉTICO B','TRECHO SINTÉTICO A\r\nLIMITE SINTÉTICO B','TRECHO SINTÉTICO A\tLIMITE SINTÉTICO B']){
+  const f=fixture(),coverage={extent:'declared_section',description,photoIds:[id(11)]};
+  f.detail.execution.coverage=copy(coverage);f.snapshot.lvts[0].coverage=copy(coverage);
+  const record=await Report.freeze(f),pdf=await Report.createPdf(record,{}, {},jsPDF);
+  assert.equal(record.content.execution.coverage.description,description);
+  assert.equal(pdf.metadata.coverage.description,description);assert.equal(pdf.metadata.canIssue,false);
+ }
+ for(const control of ['\u0000','\u0008','\u000b','\u000c','\u001b','\u007f']){
+  const f=fixture(),coverage={extent:'declared_section',description:'TRECHO'+control+'SINTÉTICO',photoIds:[id(11)]};
+  f.detail.execution.coverage=copy(coverage);f.snapshot.lvts[0].coverage=copy(coverage);
+  await assert.rejects(Report.freeze(f),/Cobertura exige/);
+ }
+});

@@ -552,7 +552,7 @@ declare actor uuid; own uuid; inspection_id uuid; request_id uuid; cap jsonb; d 
  scope jsonb; source jsonb; deadline_anchor jsonb; deadline_review boolean; id uuid; item_id uuid; kind text; observed text; status text; n integer; completed integer:=0; review_needed boolean:=false;
  seen text[]:='{}'; reading jsonb; readings jsonb; instrument text;
  outcome text; coverage jsonb; point_ref jsonb; point_body jsonb; point_label text; point_status text;
- requires_treatment boolean; actionability text; supports_good boolean; no_action_text text;
+ requires_treatment boolean; actionability text; supports_good boolean; no_action_text text; closed_rti boolean;
  checked_answer jsonb; checked_condition jsonb; checked_recommendation jsonb; checked_item jsonb; checked_point jsonb;
  selected_photo_ids jsonb:='[]'::jsonb; treatment_count integer:=0; coverage_photo_ids jsonb;
 begin
@@ -835,28 +835,64 @@ begin
      end loop;
      scope:=jsonb_build_object('assetId',i->>'assetId','lvtId',e->>'id','inspectionId',i->>'id','campaignId',i->>'campaignId','contractId',i->>'contractId','systemId',i->>'systemId','module',i->>'module','lvtItemId',item_id);
      source:=jsonb_build_object('format','field_record','actorUserId',actor,'observedOn',observed,'catalogId',cat->>'id');
+     shell:=pi_gestao_private.ga_record(p_tenant,own,item_id,'lvt_item');
+     select r.body||jsonb_build_object('id',r.id,'version',r.version) into prior_rti from pi_gestao_private.records r where r.tenant_id=p_tenant and r.owner_id=own and r.kind='rti' and r.body->>'executionId'=e->>'id' and r.body->>'lvtItemId'=item_id::text;
+     select r.body||jsonb_build_object('id',r.id,'version',r.version) into finding from pi_gestao_private.records r where r.tenant_id=p_tenant and r.owner_id=own and r.kind='finding' and r.body->>'executionId'=e->>'id' and r.body->>'lvtItemId'=item_id::text;
+     closed_rti:=coalesce(prior_rti->>'status'='encerrada',false);
      select count(*) into n from pi_gestao_private.records r where r.tenant_id=p_tenant and r.owner_id=own and r.kind='document' and r.body->>'recordClass'='field_point_reference' and r.body->>'executionId'=e->>'id' and r.body->>'lvtItemId'=item_id::text;
      if n>1 then raise exception 'Há referências de campo duplicadas; revisão técnica necessária.' using errcode='22023';end if;
      select r.body||jsonb_build_object('id',r.id,'version',r.version) into point_ref from pi_gestao_private.records r where r.tenant_id=p_tenant and r.owner_id=own and r.kind='document' and r.body->>'recordClass'='field_point_reference' and r.body->>'executionId'=e->>'id' and r.body->>'lvtItemId'=item_id::text;
      if point_ref is not null and (point_ref->>'contractId' is distinct from i->>'contractId' or point_ref->>'assetId' is distinct from i->>'assetId' or point_ref->>'inspectionId' is distinct from i->>'id' or point_ref->>'systemId' is distinct from i->>'systemId' or point_ref->>'lvtId' is distinct from e->>'id') then raise exception 'Referência de campo fora do escopo da execução.' using errcode='42501';end if;
      if answer ? 'pointLabel' and jsonb_typeof(answer->'pointLabel') not in ('string','null') then raise exception 'Rótulo de ponto deve ser texto declarado, nunca objeto, número ou booleano.' using errcode='22023';end if;
      if nullif(btrim(answer->>'pointLabel'),'') is not null then point_label:=pi_gestao_private.ga_text(answer->>'pointLabel','Rótulo de referência de campo declarado',200);else point_label:=point_ref->>'label';end if;
+     -- A closed treatment is historical evidence, not a mutable projection of
+     -- the current draft. Check semantics before touching its point/item/finding.
+     -- An identical save may advance the execution version, but never rewrites
+     -- the closed RTI, its evidence, deadline basis or closure history.
+     if closed_rti then
+      review_needed:=review_needed or coalesce((prior_rti->>'technicalReviewRequired')::boolean,false) or coalesce((prior_rti->>'recommendationWithdrawn')::boolean,false);
+      if e->>'observedOn' is distinct from observed
+      or shell->>'conditionId' is distinct from condition->>'id' or shell->>'description' is distinct from condition->>'text'
+      or shell->'conditionSource' is distinct from coalesce(condition->'source','null'::jsonb)
+      or shell->>'recommendationId' is distinct from recommendation->>'id' or shell->>'recommendation' is distinct from recommendation->>'text'
+      or shell->'recommendationSource' is distinct from coalesce(recommendation->'source','null'::jsonb)
+      or shell->'notCovered' is distinct from answer->'notCovered' or shell->'photoIds' is distinct from answer->'photoIds'
+      or shell->'requiresTreatment' is distinct from coalesce(to_jsonb(requires_treatment),'null'::jsonb)
+      or shell->'conditionSupportsGoodCondition' is distinct from coalesce(to_jsonb(supports_good),'null'::jsonb)
+      or shell->>'actionabilityStatus' is distinct from actionability or shell->>'pointLabel' is distinct from point_label
+      or shell->>'pointId' is distinct from point_ref->>'id' or shell->'pointVersion' is distinct from coalesce(point_ref->'version','null'::jsonb)
+      or (point_ref is not null and (point_ref->>'label' is distinct from point_label or point_ref->'photoIds' is distinct from answer->'photoIds'))
+      then raise exception 'RTI encerrada exige revisão técnica antes de alterar data, condição, recomendação, fotos, ponto ou retirar a tratativa.' using errcode='22023';end if;
+      if prior_rti->>'recommendationWithdrawn' is distinct from 'true' and (
+       finding is null or prior_rti->>'sourceDate' is distinct from observed or prior_rti->'deadlineAnchor'->>'date' is distinct from observed
+       or prior_rti->>'conditionId' is distinct from condition->>'id' or prior_rti->>'description' is distinct from condition->>'text'
+       or prior_rti->>'recommendationId' is distinct from recommendation->>'id' or prior_rti->>'recommendation' is distinct from recommendation->>'text'
+       or prior_rti->'recommendationSource' is distinct from recommendation->'source' or prior_rti->'photoIds' is distinct from answer->'photoIds'
+       or prior_rti->>'pointId' is distinct from point_ref->>'id' or prior_rti->'pointVersion' is distinct from coalesce(point_ref->'version','null'::jsonb)
+       or prior_rti->>'pointLabel' is distinct from point_label
+       or finding->>'conditionId' is distinct from condition->>'id' or finding->>'description' is distinct from condition->>'text'
+       or finding->>'recommendationId' is distinct from recommendation->>'id' or finding->>'recommendation' is distinct from recommendation->>'text'
+       or finding->'recommendationSource' is distinct from recommendation->'source' or finding->'photoIds' is distinct from answer->'photoIds'
+       or finding->>'pointId' is distinct from point_ref->>'id' or finding->'pointVersion' is distinct from coalesce(point_ref->'version','null'::jsonb)
+       or finding->>'pointLabel' is distinct from point_label
+      ) then raise exception 'Evidência da RTI encerrada diverge do item; revisão técnica necessária, sem reescrever o histórico.' using errcode='22023';end if;
+     end if;
      if requires_treatment and actionability='catalog_declared' and point_label is null then raise exception 'A tratativa exige rótulo de ponto declarado; nenhuma localização é presumida.' using errcode='22023';end if;
      if point_label is not null then
       point_body:=scope||jsonb_build_object('recordClass','field_point_reference','executionId',e->>'id','label',point_label,'photoIds',answer->'photoIds','drawingReference',null,'locationStatus','pending_drawing_reference','source',source);
-      if point_ref is null then point_ref:=pi_gestao_private.ga_put(p_tenant,own,'document',point_body,actor);
+      if closed_rti then null;
+      elsif point_ref is null then point_ref:=pi_gestao_private.ga_put(p_tenant,own,'document',point_body,actor);
       elsif (point_ref-'id'-'version'-'createdAt'-'createdBy'-'updatedAt'-'updatedBy') is distinct from point_body then point_ref:=pi_gestao_private.ga_change(p_tenant,own,(point_ref->>'id')::uuid,'document',(point_ref->>'version')::bigint,point_body,actor,'referência de campo declarada atualizada; sem localização geométrica presumida');end if;
       point_status:='linked_field_reference';
      elsif requires_treatment then point_status:='pending';review_needed:=true;end if;
      normalized:=jsonb_build_object('catalogItemId',item->>'id','itemKey',item->>'itemKey','conditionId',condition->>'id','recommendationId',recommendation->>'id','notCovered',answer->'notCovered','photoIds',answer->'photoIds','requiresTreatment',requires_treatment,'conditionSupportsGoodCondition',supports_good,'actionabilityStatus',actionability,'pointId',point_ref->>'id','pointLabel',point_label,'pointVersion',point_ref->'version','pointLinkStatus',point_status);
      if condition is not null or answer->>'notCovered'='true' then completed:=completed+1;end if;
      answers:=answers||jsonb_build_array(normalized);
-     shell:=pi_gestao_private.ga_record(p_tenant,own,item_id,'lvt_item');
      scope:=jsonb_build_object('assetId',i->>'assetId','lvtId',e->>'id','inspectionId',i->>'id','campaignId',i->>'campaignId','contractId',i->>'contractId','systemId',i->>'systemId','module',i->>'module','lvtItemId',item_id);
      source:=jsonb_build_object('format','field_record','actorUserId',actor,'observedOn',observed,'catalogId',cat->>'id');
-     perform pi_gestao_private.ga_change(p_tenant,own,item_id,'lvt_item',(shell->>'version')::bigint,normalized||jsonb_build_object('description',condition->>'text','conditionSource',condition->'source','recommendation',recommendation->>'text','recommendationSource',recommendation->'source','status',case when answer->>'notCovered'='true' then 'gestao_tecnica_pendente' when condition is null then 'pendente' else 'respondido' end,'technicalReviewRequired',answer->'notCovered','source',source),actor,'resposta de item da LVT salva');
-     select r.body||jsonb_build_object('id',r.id,'version',r.version) into prior_rti from pi_gestao_private.records r where r.tenant_id=p_tenant and r.owner_id=own and r.kind='rti' and r.body->>'executionId'=e->>'id' and r.body->>'lvtItemId'=item_id::text;
-     select r.body||jsonb_build_object('id',r.id,'version',r.version) into finding from pi_gestao_private.records r where r.tenant_id=p_tenant and r.owner_id=own and r.kind='finding' and r.body->>'executionId'=e->>'id' and r.body->>'lvtItemId'=item_id::text;
+     if not closed_rti then
+      perform pi_gestao_private.ga_change(p_tenant,own,item_id,'lvt_item',(shell->>'version')::bigint,normalized||jsonb_build_object('description',condition->>'text','conditionSource',condition->'source','recommendation',recommendation->>'text','recommendationSource',recommendation->'source','status',case when answer->>'notCovered'='true' then 'gestao_tecnica_pendente' when condition is null then 'pendente' else 'respondido' end,'technicalReviewRequired',answer->'notCovered','source',source),actor,'resposta de item da LVT salva');
+     end if;
      -- Version metadata advances on every content save. Only changes to the
      -- declared date or selected condition/recommendation invalidate the basis of
      -- an existing deadline; a no-op save or replay does not create a new review.
@@ -870,7 +906,8 @@ begin
        or (case when shell ? 'recommendationId' then shell->>'recommendationId' else prior_rti->>'recommendationId' end) is distinct from recommendation->>'id'
        or (case when shell ? 'recommendationId' and shell->>'recommendationId' is null then null else prior_rti->>'recommendation' end) is distinct from recommendation->>'text'
       ));
-     if requires_treatment then
+     if closed_rti then null;
+     elsif requires_treatment then
       patch:=scope||jsonb_build_object('executionId',e->>'id','description',condition->>'text','conditionId',condition->>'id','recommendation',recommendation->>'text','recommendationId',recommendation->>'id','recommendationSource',recommendation->'source','photoIds',answer->'photoIds','source',source,'sourceDate',observed,'deadlineAnchor',deadline_anchor,'deadlineReviewRequired',deadline_review,'requiresTreatment',true,'actionabilityStatus',actionability,'pointId',point_ref->>'id','pointLabel',point_label,'pointVersion',point_ref->'version','pointLinkStatus',point_status);
       if finding is null then finding:=pi_gestao_private.ga_put(p_tenant,own,'finding',patch,actor);else finding:=pi_gestao_private.ga_change(p_tenant,own,(finding->>'id')::uuid,'finding',(finding->>'version')::bigint,patch,actor,'recomendação do item atualizada');end if;
       patch:=patch||jsonb_build_object('findingId',finding->>'id','title',recommendation->>'text','originType','field_recommendation','technicalReviewRequired',actionability='legacy_unclassified' or point_status='pending','recommendationWithdrawn',false);

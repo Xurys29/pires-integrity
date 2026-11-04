@@ -73,9 +73,10 @@
   function coverageOf(content, photoMap) {
     const coverage = content.execution.coverage;
     if (coverage === undefined || coverage === null) return null;
+    // The saved textarea may contain LF/CR/TAB; preserve them as in the form.
     if (!coverage || typeof coverage !== "object" || Array.isArray(coverage) || Object.keys(coverage).some((key) => !["extent", "description", "photoIds"].includes(key))
       || !["declared_section", "declared_entire_line"].includes(coverage.extent) || typeof coverage.description !== "string" || !coverage.description.trim() || coverage.description.length > 2000
-      || /[\u0000-\u001f\u007f]/.test(coverage.description) || !Array.isArray(coverage.photoIds) || coverage.photoIds.length > 1000 || new Set(coverage.photoIds).size !== coverage.photoIds.length) throw Error("Cobertura exige trecho ou linha integral explicitamente declarados, descrição e fotos selecionadas.");
+      || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(coverage.description) || !Array.isArray(coverage.photoIds) || coverage.photoIds.length > 1000 || new Set(coverage.photoIds).size !== coverage.photoIds.length) throw Error("Cobertura exige trecho ou linha integral explicitamente declarados, descrição e fotos selecionadas.");
     const selected = new Set((content.execution.answers || []).flatMap((answer) => answer.photoIds || []));
     for (const id of coverage.photoIds) if (!UUID.test(id || "") || !selected.has(id) || !photoMap.has(id)) throw Error("Foto de cobertura não pertence às respostas da mesma TAG e inspeção.");
     return coverage;
