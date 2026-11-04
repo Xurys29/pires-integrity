@@ -69,6 +69,68 @@ end $$;
 create trigger inspection_catalog_binding_immutable before update or delete on pi_gestao_private.inspection_catalog_bindings
 for each row execute function pi_gestao_private.ga_catalog_binding_immutable();
 
+-- Versioned reference entries only. No score, deadline or operational authority
+-- is inferred. The constant was generated from the reviewed Node registry.
+create function pi_gestao_private.ga_execution_guidance_registry_v1()
+returns jsonb language sql immutable set search_path='' as $$
+ select $guidance_registry${"schemaVersion":1,"registryId":"pires-corrosion-guidance-registry","entries":[{"ruleRef":{"referenceId":"pires-corrosion-treatment-guidance","representationVersion":1,"entryId":"leve","contentHash":"2fd5e70743ae27c05ec9b60ded0b684b61db772bf5426a8cf708fc6870c17338"},"guidance":{"referenceSource":"requester_corrosion_guidance","scope":"corrosion_treatment_guidance_only","intensity":"leve","label":"Leve","actionReference":"Tratar e pintar.","durationReference":{"kind":"range","minimum":6,"maximum":12,"unit":"month","boundaryRule":null,"selectionRule":null,"calendarRule":null},"conditionalDispositions":[],"deadlineAnchor":{"event":"inspection_completed","basis":"declared_inspection_end_date","source":"requester_inspection_end_date_guidance","endTime":null,"timeRule":null,"hourCountingRule":null},"operationalActionAuthorized":false,"recommendationOverrideAuthorized":false,"canCalculateDue":false,"due":null,"score":null,"pof":null,"cof":null,"blockingReasons":["applicable_corrosion_criteria_not_linked","risk_assessment_and_human_authority_not_linked","exact_due_date_rule_not_linked","calendar_and_inspection_time_rule_not_linked"]}},{"ruleRef":{"referenceId":"pires-corrosion-treatment-guidance","representationVersion":1,"entryId":"media","contentHash":"2a0f760da4e3623f00e46654e673a77f114d58135d430feda106b8381dc3f811"},"guidance":{"referenceSource":"requester_corrosion_guidance","scope":"corrosion_treatment_guidance_only","intensity":"media","label":"Média","actionReference":"Tratar e pintar.","durationReference":{"kind":"range","minimum":3,"maximum":6,"unit":"month","boundaryRule":null,"selectionRule":null,"calendarRule":null},"conditionalDispositions":[],"deadlineAnchor":{"event":"inspection_completed","basis":"declared_inspection_end_date","source":"requester_inspection_end_date_guidance","endTime":null,"timeRule":null,"hourCountingRule":null},"operationalActionAuthorized":false,"recommendationOverrideAuthorized":false,"canCalculateDue":false,"due":null,"score":null,"pof":null,"cof":null,"blockingReasons":["applicable_corrosion_criteria_not_linked","risk_assessment_and_human_authority_not_linked","exact_due_date_rule_not_linked","calendar_and_inspection_time_rule_not_linked"]}},{"ruleRef":{"referenceId":"pires-corrosion-treatment-guidance","representationVersion":1,"entryId":"severa","contentHash":"e086459ffba3a5e98483b5a6f6f89e56c3f7598003eb58ea2538e823ee6d689e"},"guidance":{"referenceSource":"requester_corrosion_guidance","scope":"corrosion_treatment_guidance_only","intensity":"severa","label":"Severa","actionReference":"Substituir.","durationReference":{"kind":"stated_duration","value":1,"unit":"day","calendarRule":null,"countingRule":null},"conditionalDispositions":[],"deadlineAnchor":{"event":"inspection_completed","basis":"declared_inspection_end_date","source":"requester_inspection_end_date_guidance","endTime":null,"timeRule":null,"hourCountingRule":null},"operationalActionAuthorized":false,"recommendationOverrideAuthorized":false,"canCalculateDue":false,"due":null,"score":null,"pof":null,"cof":null,"blockingReasons":["applicable_corrosion_criteria_not_linked","risk_assessment_and_human_authority_not_linked","exact_due_date_rule_not_linked","calendar_and_inspection_time_rule_not_linked"]}},{"ruleRef":{"referenceId":"pires-corrosion-treatment-guidance","representationVersion":1,"entryId":"urgente","contentHash":"06a25bbb50cf91d4654300ca85d3e0a23bd32b874051b256810ef7904cc9ef9e"},"guidance":{"referenceSource":"requester_corrosion_guidance","scope":"corrosion_treatment_guidance_only","intensity":"urgente","label":"Urgente","actionReference":"Substituir imediatamente.","durationReference":{"kind":"immediate_reference","value":null,"unit":null,"operationalDefinition":null},"conditionalDispositions":[{"action":"Interdição","riskAssessmentRequired":true,"humanAuthorityRequired":true,"authorized":false},{"action":"Remoção","riskAssessmentRequired":true,"humanAuthorityRequired":true,"authorized":false}],"deadlineAnchor":{"event":"inspection_completed","basis":"declared_inspection_end_date","source":"requester_inspection_end_date_guidance","endTime":null,"timeRule":null,"hourCountingRule":null},"operationalActionAuthorized":false,"recommendationOverrideAuthorized":false,"canCalculateDue":false,"due":null,"score":null,"pof":null,"cof":null,"blockingReasons":["applicable_corrosion_criteria_not_linked","risk_assessment_and_human_authority_not_linked","exact_due_date_rule_not_linked","calendar_and_inspection_time_rule_not_linked"]}}]}$guidance_registry$::jsonb;
+$$;
+
+-- Current reference for new catalogue selections only. Recognized immutable
+-- versions remain separate; changing this pointer never reinterprets a v1 pin.
+create function pi_gestao_private.ga_execution_guidance_registry()
+returns jsonb language sql immutable set search_path='' as $$
+ select pi_gestao_private.ga_execution_guidance_registry_v1();
+$$;
+
+create function pi_gestao_private.ga_execution_treatment_guidance(p_registry jsonb,p_item jsonb,p_condition jsonb,p_recommendation jsonb)
+returns jsonb language plpgsql immutable set search_path='' as $$
+declare result jsonb;b jsonb;entry jsonb;matches integer;
+ trim_chars text:=U&'\0009\000A\000B\000C\000D\0020\00A0\1680\2000\2001\2002\2003\2004\2005\2006\2007\2008\2009\200A\2028\2029\202F\205F\3000\FEFF';
+begin
+ result:=jsonb_build_object('schemaVersion',1,'status','pending_mapping','catalogItemId',p_item->>'id','conditionId',p_condition->>'id','recommendationId',p_recommendation->>'id',
+  'ruleRef',null,'mappingEvidence',null,'guidance',null,'referenceOnly',true,'canCalculateDue',false,'due',null,'score',null,'operationalActionAuthorized',false,'recommendationOverrideAuthorized',false);
+ if p_recommendation is null or p_recommendation='null'::jsonb then return result||jsonb_build_object('status','not_selected');end if;
+ if jsonb_typeof(p_item) is distinct from 'object' or jsonb_typeof(p_item->'id') is distinct from 'string' or length(btrim(p_item->>'id',trim_chars))=0 then return result||jsonb_build_object('status','invalid_reference');end if;
+ if p_condition is null or p_condition='null'::jsonb then return result||jsonb_build_object('status',case when p_recommendation->'requiresTreatment'='false'::jsonb then 'not_applicable' else 'invalid_reference' end);end if;
+ if jsonb_typeof(p_item->'conditions') is distinct from 'array' or jsonb_typeof(p_item->'recommendations') is distinct from 'array' then return result||jsonb_build_object('status','invalid_reference');end if;
+ if jsonb_typeof(p_condition->'id') is distinct from 'string' or jsonb_typeof(p_recommendation->'id') is distinct from 'string' or length(btrim(p_condition->>'id',trim_chars))=0 or length(btrim(p_recommendation->>'id',trim_chars))=0
+ or (select count(*) from jsonb_array_elements(p_item->'conditions') v where v->'id'=p_condition->'id')<>1
+ or (select count(*) from jsonb_array_elements(p_item->'recommendations') v where v->'id'=p_recommendation->'id')<>1
+ or not exists(select 1 from jsonb_array_elements(p_item->'conditions') v where v=p_condition)
+ or not exists(select 1 from jsonb_array_elements(p_item->'recommendations') v where v=p_recommendation)
+ then return result||jsonb_build_object('status','invalid_reference');end if;
+ if p_recommendation->'requiresTreatment'='false'::jsonb then return result||jsonb_build_object('status','not_applicable');end if;
+ if not p_item ? 'guidanceBindings' or p_item->'guidanceBindings'='null'::jsonb then return result;end if;
+ if jsonb_typeof(p_item->'guidanceBindings') is distinct from 'array' then return result||jsonb_build_object('status','conflict');end if;
+ if exists(select 1 from jsonb_array_elements(p_item->'guidanceBindings') v where jsonb_typeof(v) is distinct from 'object'
+  or jsonb_typeof(v->'conditionId') is distinct from 'string' or length(btrim(v->>'conditionId',trim_chars))=0
+  or jsonb_typeof(v->'recommendationId') is distinct from 'string' or length(btrim(v->>'recommendationId',trim_chars))=0
+  or jsonb_typeof(v->'mappingStatus') is distinct from 'string' or length(btrim(v->>'mappingStatus',trim_chars))=0)
+ then return result||jsonb_build_object('status','conflict');end if;
+ select count(*) into matches from jsonb_array_elements(p_item->'guidanceBindings') v where jsonb_typeof(v)='object' and v->'conditionId'=p_condition->'id' and v->'recommendationId'=p_recommendation->'id';
+ if matches=0 then return result;end if;
+ if matches<>1 then return result||jsonb_build_object('status','conflict');end if;
+ select value into b from jsonb_array_elements(p_item->'guidanceBindings') where value->'conditionId'=p_condition->'id' and value->'recommendationId'=p_recommendation->'id';
+ if jsonb_typeof(b->'mappingEvidence')='object' then result:=result||jsonb_build_object('mappingEvidence',b->'mappingEvidence');end if;
+ if exists(select 1 from jsonb_object_keys(b) k where k not in ('conditionId','recommendationId','mappingStatus','ruleRef','mappingEvidence')) then return result||jsonb_build_object('status','invalid_reference');end if;
+ if b->>'mappingStatus'='conflict' then return result||jsonb_build_object('status','conflict');end if;
+ if b->>'mappingStatus'='pending_specific_review' then return result||jsonb_build_object('status','pending_specific_review');end if;
+ if b->>'mappingStatus' is distinct from 'verified_link' then return result||jsonb_build_object('status','invalid_reference');end if;
+ if jsonb_typeof(b->'mappingEvidence') is distinct from 'object' then return result||jsonb_build_object('status','invalid_reference');end if;
+ if exists(select 1 from jsonb_object_keys(b->'mappingEvidence') k where k not in ('conditionSource','recommendationSource','reviewReference'))
+ or jsonb_typeof(p_condition->'source') is distinct from 'object' or jsonb_typeof(p_recommendation->'source') is distinct from 'object'
+ or p_condition->'source'='{}'::jsonb or p_recommendation->'source'='{}'::jsonb
+ or b->'mappingEvidence'->'conditionSource' is distinct from p_condition->'source' or b->'mappingEvidence'->'recommendationSource' is distinct from p_recommendation->'source'
+ or jsonb_typeof(b->'mappingEvidence'->'reviewReference') is distinct from 'string' or length(btrim(b->'mappingEvidence'->>'reviewReference',trim_chars)) not between 1 and 2000
+ then return result||jsonb_build_object('status','invalid_reference');end if;
+ if p_registry is distinct from pi_gestao_private.ga_execution_guidance_registry_v1() or jsonb_typeof(b->'ruleRef') is distinct from 'object'
+ then return result||jsonb_build_object('status','invalid_reference');end if;
+ select value into entry from jsonb_array_elements(pi_gestao_private.ga_execution_guidance_registry_v1()->'entries') where value->'ruleRef'=b->'ruleRef';
+ if entry is null then return result||jsonb_build_object('status','invalid_reference');end if;
+ return result||jsonb_build_object('status','verified_link','ruleRef',entry->'ruleRef','guidance',entry->'guidance');
+end $$;
+
 create function pi_gestao_private.ga_execution_validate_catalog(p_tenant uuid,p_owner uuid,p_catalog jsonb)
 returns jsonb language plpgsql set search_path='' as $$
 declare s pi_gestao_private.sources; item jsonb; choice jsonb; seen text[]:='{}'; choice_ids text[];loc jsonb;
@@ -115,6 +177,9 @@ begin
  result:=jsonb_build_object('id',c.id,'tenantId',p_tenant,'ownerId',p_owner,'status','verified','items',c.items,
   'source',jsonb_build_object('sourceId',s.id,'fileHash',s.id,'fileName',s.name,'locator',c.source_locator),'verifiedAt',c.verified_at,
   'versionLabel',c.version_label,'procedureReference',c.procedure_reference,'applicability',c.applicability);
+ -- Adding reference metadata alone must not change an unchanged legacy catalogue
+ -- hash/version. Only a catalogue declaring curated bindings pins a registry.
+ if exists(select 1 from jsonb_array_elements(c.items) item where item ? 'guidanceBindings') then result:=result||jsonb_build_object('guidanceRegistry',pi_gestao_private.ga_execution_guidance_registry());end if;
  return pi_gestao_private.ga_execution_validate_catalog(p_tenant,p_owner,result);
 end $$;
 
@@ -375,6 +440,7 @@ create function pi_gestao_private.ga_execution_detail(p_tenant uuid,p_owner uuid
 returns jsonb language plpgsql set search_path='' as $$
 declare actor uuid; cap jsonb; i jsonb; e jsonb; cat jsonb; catalog_state jsonb; con jsonb; campaign jsonb; p pi_team_private.professionals;
  a pi_team_private.professionals; x pi_gestao_private.inspection_executions; manager boolean; can_execute boolean; reason text;
+ saved_answer jsonb;saved_item jsonb;definition jsonb;selected_condition jsonb;selected_recommendation jsonb;saved_rti jsonb;saved_finding jsonb;guidance jsonb;
 begin
  actor:=pi_gestao_private.ga_require_access(p_tenant,false);
  cap:=pi_gestao_private.ga_access_for_actor(p_tenant,actor);
@@ -391,6 +457,28 @@ begin
  select * into x from pi_gestao_private.inspection_executions where tenant_id=p_tenant and owner_id=p_owner and inspection_id=p_inspection;
  if x.execution_id is not null then e:=pi_gestao_private.ga_record(p_tenant,p_owner,x.execution_id,x.execution_kind);end if;
  catalog_state:=pi_gestao_private.ga_execution_catalog_state(p_tenant,p_owner,i,e,x.catalog_binding_id,x.catalog_id,manager and cap->>'write'='true');cat:=catalog_state->'catalog';
+ -- Read the same saved projection that submit/PDF will consume. Legacy records
+ -- without guidance stay readable; a later source/registry never rewrites a
+ -- closed treatment or a withdrawn historical recommendation on consultation.
+ for saved_answer in select value from jsonb_array_elements(coalesce(e->'answers','[]'::jsonb)) loop
+  select r.body into saved_item from pi_gestao_private.records r where r.tenant_id=p_tenant and r.owner_id=p_owner and r.kind='lvt_item' and r.body->>'lvtId'=e->>'id' and r.body->>'catalogItemId'=saved_answer->>'catalogItemId';
+  select r.body into saved_rti from pi_gestao_private.records r where r.tenant_id=p_tenant and r.owner_id=p_owner and r.kind='rti' and r.body->>'executionId'=e->>'id' and r.body->>'lvtItemId'=(select r2.id::text from pi_gestao_private.records r2 where r2.tenant_id=p_tenant and r2.owner_id=p_owner and r2.kind='lvt_item' and r2.body->>'lvtId'=e->>'id' and r2.body->>'catalogItemId'=saved_answer->>'catalogItemId');
+  select r.body into saved_finding from pi_gestao_private.records r where r.tenant_id=p_tenant and r.owner_id=p_owner and r.kind='finding' and r.body->>'executionId'=e->>'id' and r.id::text=saved_rti->>'findingId';
+  if saved_answer ? 'treatmentGuidance' or saved_item ? 'treatmentGuidance' then
+   if saved_answer->'treatmentGuidance' is distinct from saved_item->'treatmentGuidance' then raise exception 'Orientação salva diverge entre resposta e item; revisão técnica necessária.' using errcode='22023';end if;
+   if saved_rti->>'status' is distinct from 'encerrada' then
+    select value into definition from jsonb_array_elements(coalesce(cat->'items','[]')) where value->>'id'=saved_answer->>'catalogItemId';
+    select value into selected_condition from jsonb_array_elements(coalesce(definition->'conditions','[]')) where value->>'id'=saved_answer->>'conditionId';
+    select value into selected_recommendation from jsonb_array_elements(coalesce(definition->'recommendations','[]')) where value->>'id'=saved_answer->>'recommendationId';
+    guidance:=pi_gestao_private.ga_execution_treatment_guidance(cat->'guidanceRegistry',definition,selected_condition,selected_recommendation);
+    if saved_answer->'treatmentGuidance' is distinct from guidance then raise exception 'Orientação salva diverge do vínculo curado fixado; revisão técnica necessária.' using errcode='22023';end if;
+   end if;
+  end if;
+  if saved_rti->>'recommendationWithdrawn' is distinct from 'true' and (saved_answer ? 'treatmentGuidance' or saved_item ? 'treatmentGuidance' or saved_finding ? 'treatmentGuidance' or saved_rti ? 'treatmentGuidance') and saved_answer->>'requiresTreatment'='true'
+   and (saved_rti is null or saved_finding is null or saved_rti->'treatmentGuidance' is distinct from saved_answer->'treatmentGuidance' or saved_finding->'treatmentGuidance' is distinct from saved_answer->'treatmentGuidance')
+  then raise exception 'Orientação da tratativa diverge entre item, achado e RTI; revisão técnica necessária.' using errcode='22023';end if;
+  if saved_rti->>'recommendationWithdrawn'='true' and saved_rti->'treatmentGuidance' is distinct from saved_finding->'treatmentGuidance' then raise exception 'Orientação histórica da RTI retirada diverge do achado preservado.' using errcode='22023';end if;
+ end loop;
  can_execute:=(pi_gestao_private.ga_execution_actor_scope(p_tenant,p_owner,p_inspection,actor,false)->>'canExecute')::boolean;
  reason:=case when not manager and (cap->>'role'<>'inspector' or p.functional_role is distinct from 'inspector') then 'A permissão atual permite consulta. A execução exige o perfil de inspetor atribuído.'
  when a.id is null then 'Inspeção ainda não atribuída.'
@@ -557,11 +645,12 @@ declare actor uuid; own uuid; inspection_id uuid; request_id uuid; cap jsonb; d 
  selected_photo_ids jsonb:='[]'::jsonb; treatment_count integer:=0; coverage_photo_ids jsonb;
  deadline_decision jsonb; deadline_history jsonb; manual_due text; deadline_evidence text; linked_execution uuid;
  inspection_started text; inspection_ended text; timeline_explicit boolean; finding_observed text; finding_instant timestamptz;
+ treatment_guidance jsonb;
 begin
  actor:=pi_gestao_private.ga_require_access(p_tenant,false);
  cap:=pi_gestao_private.ga_access_for_actor(p_tenant,actor);manager:=cap->>'role' in ('admin','master');
  select * into person from pi_team_private.professionals where tenant_id=p_tenant and user_id=actor and registration_state='active' and access_revoked_at is null;
- if p_action='access.get' then return cap||jsonb_build_object('inspectionScopeVersion',1,'inspectionWriteAllowed',cap->>'role'='inspector' and person.id is not null and person.functional_role='inspector','inspectorWorkspaceVersion',1,'rtiDeadlineDecisionVersion',1,'inspectionTimelineVersion',1);end if;
+ if p_action='access.get' then return cap||jsonb_build_object('inspectionScopeVersion',1,'inspectionWriteAllowed',cap->>'role'='inspector' and person.id is not null and person.functional_role='inspector','inspectorWorkspaceVersion',1,'rtiDeadlineDecisionVersion',1,'inspectionTimelineVersion',1,'treatmentGuidanceVersion',1);end if;
  if p_action='owners.list' and cap->>'role'='inspector' then
   if person.id is null then raise exception 'Perfil profissional ativo necessário.' using errcode='42501';end if;
   return (select coalesce(jsonb_agg(jsonb_build_object('id',o.id,'name',o.name) order by o.name),'[]') from pi_gestao_private.owners o where o.tenant_id=p_tenant and exists(
@@ -940,6 +1029,14 @@ begin
      select r.body||jsonb_build_object('id',r.id,'version',r.version) into prior_rti from pi_gestao_private.records r where r.tenant_id=p_tenant and r.owner_id=own and r.kind='rti' and r.body->>'executionId'=e->>'id' and r.body->>'lvtItemId'=item_id::text;
      select r.body||jsonb_build_object('id',r.id,'version',r.version) into finding from pi_gestao_private.records r where r.tenant_id=p_tenant and r.owner_id=own and r.kind='finding' and r.body->>'executionId'=e->>'id' and r.body->>'lvtItemId'=item_id::text;
      closed_rti:=coalesce(prior_rti->>'status'='encerrada',false);
+     treatment_guidance:=pi_gestao_private.ga_execution_treatment_guidance(cat->'guidanceRegistry',item,condition,recommendation);
+     if closed_rti then
+      -- A registry upgrade is not permission to backfill/reclassify closed work.
+      treatment_guidance:=case when shell ? 'treatmentGuidance' then shell->'treatmentGuidance' else null end;
+      if prior_rti->>'recommendationWithdrawn' is distinct from 'true' and (shell->'treatmentGuidance' is distinct from prior_rti->'treatmentGuidance' or finding->'treatmentGuidance' is distinct from prior_rti->'treatmentGuidance') then raise exception 'Orientação encerrada diverge do histórico fixado.' using errcode='22023';end if;
+     elsif requires_treatment then
+      if treatment_guidance->>'status' is distinct from 'verified_link' or coalesce(prior_rti->>'technicalReviewRequired','false')='true' then review_needed:=true;end if;
+     end if;
      select count(*) into n from pi_gestao_private.records r where r.tenant_id=p_tenant and r.owner_id=own and r.kind='document' and r.body->>'recordClass'='field_point_reference' and r.body->>'executionId'=e->>'id' and r.body->>'lvtItemId'=item_id::text;
      if n>1 then raise exception 'Há referências de campo duplicadas; revisão técnica necessária.' using errcode='22023';end if;
      select r.body||jsonb_build_object('id',r.id,'version',r.version) into point_ref from pi_gestao_private.records r where r.tenant_id=p_tenant and r.owner_id=own and r.kind='document' and r.body->>'recordClass'='field_point_reference' and r.body->>'executionId'=e->>'id' and r.body->>'lvtItemId'=item_id::text;
@@ -989,6 +1086,7 @@ begin
       point_status:='linked_field_reference';
      elsif requires_treatment then point_status:='pending';review_needed:=true;end if;
      normalized:=jsonb_build_object('catalogItemId',item->>'id','itemKey',item->>'itemKey','conditionId',condition->>'id','recommendationId',recommendation->>'id','notCovered',answer->'notCovered','photoIds',answer->'photoIds','requiresTreatment',requires_treatment,'conditionSupportsGoodCondition',supports_good,'actionabilityStatus',actionability,'pointId',point_ref->>'id','pointLabel',point_label,'pointVersion',point_ref->'version','pointLinkStatus',point_status,'findingObservedAt',finding_observed);
+     if treatment_guidance is not null then normalized:=normalized||jsonb_build_object('treatmentGuidance',treatment_guidance);end if;
      if condition is not null or answer->>'notCovered'='true' then completed:=completed+1;end if;
      answers:=answers||jsonb_build_array(normalized);
      scope:=jsonb_build_object('assetId',i->>'assetId','lvtId',e->>'id','inspectionId',i->>'id','campaignId',i->>'campaignId','contractId',i->>'contractId','systemId',i->>'systemId','module',i->>'module','lvtItemId',item_id);
@@ -1006,6 +1104,7 @@ begin
        or e->>'observedOn' is distinct from observed
        or e->>'inspectionStartedOn' is distinct from inspection_started or e->>'inspectionEndedOn' is distinct from inspection_ended
        or prior_rti->>'findingObservedAt' is distinct from finding_observed
+       or shell->'treatmentGuidance' is distinct from treatment_guidance
        or (case when shell ? 'conditionId' then shell->>'conditionId' else prior_rti->>'conditionId' end) is distinct from condition->>'id'
        or (case when shell ? 'description' then shell->>'description' else prior_rti->>'description' end) is distinct from condition->>'text'
        -- A withdrawn RTI keeps its historical recommendation. The item records
@@ -1016,8 +1115,9 @@ begin
      if closed_rti then null;
      elsif requires_treatment then
       patch:=scope||jsonb_build_object('executionId',e->>'id','description',condition->>'text','conditionId',condition->>'id','recommendation',recommendation->>'text','recommendationId',recommendation->>'id','recommendationSource',recommendation->'source','photoIds',answer->'photoIds','source',source,'sourceDate',observed,'deadlineAnchor',deadline_anchor,'deadlineReviewRequired',deadline_review,'requiresTreatment',true,'actionabilityStatus',actionability,'pointId',point_ref->>'id','pointLabel',point_label,'pointVersion',point_ref->'version','pointLinkStatus',point_status,'findingObservedAt',finding_observed);
+      patch:=patch||jsonb_build_object('treatmentGuidance',treatment_guidance);
       if finding is null then finding:=pi_gestao_private.ga_put(p_tenant,own,'finding',patch,actor);else finding:=pi_gestao_private.ga_change(p_tenant,own,(finding->>'id')::uuid,'finding',(finding->>'version')::bigint,patch,actor,'recomendação do item atualizada');end if;
-      patch:=patch||jsonb_build_object('findingId',finding->>'id','title',recommendation->>'text','originType','field_recommendation','technicalReviewRequired',actionability='legacy_unclassified' or point_status='pending','recommendationWithdrawn',false);
+      patch:=patch||jsonb_build_object('findingId',finding->>'id','title',recommendation->>'text','originType','field_recommendation','technicalReviewRequired',coalesce(prior_rti->>'technicalReviewRequired','false')='true' or actionability='legacy_unclassified' or point_status='pending' or treatment_guidance->>'status' is distinct from 'verified_link','recommendationWithdrawn',false);
       if prior_rti is null then
        rti:=pi_gestao_private.ga_put(p_tenant,own,'rti',patch||jsonb_build_object('status','aberta','currentness',case when observed::date=current_date then 'confirmed_current' else 'unknown' end,'sourceStatus','Recomendação selecionada na ficha de campo','currentnessConfirmedAt',case when observed::date=current_date then now() else null end,'currentnessEvidence','Seleção registrada pelo responsável autenticado; revisão técnica pendente.','actions','[]'::jsonb,'history','[]'::jsonb),actor);
        perform pi_gestao_private.ga_link(p_tenant,own,(rti->>'id')::uuid,'rti',item_id,'lvt_item','addresses_item',actor);
@@ -1120,7 +1220,7 @@ begin
  return result;
 end $$;
 
-revoke all on function pi_gestao_private.ga_catalog_binding_immutable(),pi_gestao_private.ga_execution_validate_catalog(uuid,uuid,jsonb),pi_gestao_private.ga_execution_catalog_applicable(jsonb,jsonb,jsonb),pi_gestao_private.ga_execution_catalog_binding_json(pi_gestao_private.inspection_catalog_bindings),pi_gestao_private.ga_execution_catalog_state(uuid,uuid,jsonb,jsonb,uuid,uuid,boolean),pi_gestao_private.ga_execution_select_catalog(uuid,uuid,jsonb,jsonb,uuid),pi_gestao_private.ga_execution_catalog(uuid,uuid,uuid),pi_gestao_private.ga_execution_scope_matches(jsonb,jsonb,jsonb),pi_gestao_private.ga_system_report_scoped(uuid,uuid,uuid,uuid,uuid),pi_gestao_private.ga_execution_detail(uuid,uuid,uuid),pi_gestao_private.ga_api_execution(uuid,text,jsonb) from public,anon,authenticated,service_role;
+revoke all on function pi_gestao_private.ga_execution_guidance_registry_v1(),pi_gestao_private.ga_execution_guidance_registry(),pi_gestao_private.ga_execution_treatment_guidance(jsonb,jsonb,jsonb,jsonb),pi_gestao_private.ga_catalog_binding_immutable(),pi_gestao_private.ga_execution_validate_catalog(uuid,uuid,jsonb),pi_gestao_private.ga_execution_catalog_applicable(jsonb,jsonb,jsonb),pi_gestao_private.ga_execution_catalog_binding_json(pi_gestao_private.inspection_catalog_bindings),pi_gestao_private.ga_execution_catalog_state(uuid,uuid,jsonb,jsonb,uuid,uuid,boolean),pi_gestao_private.ga_execution_select_catalog(uuid,uuid,jsonb,jsonb,uuid),pi_gestao_private.ga_execution_catalog(uuid,uuid,uuid),pi_gestao_private.ga_execution_scope_matches(jsonb,jsonb,jsonb),pi_gestao_private.ga_system_report_scoped(uuid,uuid,uuid,uuid,uuid),pi_gestao_private.ga_execution_detail(uuid,uuid,uuid),pi_gestao_private.ga_api_execution(uuid,text,jsonb) from public,anon,authenticated,service_role;
 revoke all on function pi_gestao_private.ga_execution_actor_scope(uuid,uuid,uuid,uuid,boolean),pi_gestao_private.ga_execution_context(uuid,uuid,uuid),pi_gestao_private.ga_execution_report(uuid,uuid,uuid),pi_gestao_private.ga_execution_source(uuid,uuid,uuid,text,uuid),pi_gestao_private.ga_execution_photo_scope(uuid,uuid,uuid,uuid,uuid,bigint),pi_gestao_private.ga_execution_photo(uuid,uuid,jsonb),public.pi_gestao_execution_photo(uuid,uuid,jsonb) from public,anon,authenticated,service_role;
 grant execute on function pi_gestao_private.ga_execution_photo(uuid,uuid,jsonb),public.pi_gestao_execution_photo(uuid,uuid,jsonb) to service_role;
 revoke execute on function pi_gestao_private.ga_api(uuid,text,jsonb),pi_gestao_private.ga_api_operational(uuid,text,jsonb),pi_gestao_private.ga_api_prepared(uuid,text,jsonb),pi_gestao_private.ga_api_projects(uuid,text,jsonb) from authenticated;

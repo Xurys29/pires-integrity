@@ -99,3 +99,9 @@ test('Edge handshake: inspection timeline fields require an explicit numeric SQL
  const f=await fixture({inspectionScopeVersion:1,inspectorWorkspaceVersion:1,inspectionTimelineVersion:1},'admin');assert.equal((await f.send()).data.capabilities.inspectionTimelineVersion,1);
  const r=await f.send('companies/'+OWNER+'/execution-save',{method:'POST',body:{inspectionId:INSPECTION,inspectionStartedOn:'2026-11-01',inspectionEndedOn:'2026-11-02'}});assert.equal(r.status,200);assert.equal(r.data.action,'execution.save');
 });
+
+test('Edge handshake: automatic guidance is announced only for an exact selected SQL capability',async()=>{
+ for(const value of [undefined,0,'1',2,true]){const f=await fixture({inspectionScopeVersion:1,inspectorWorkspaceVersion:1,treatmentGuidanceVersion:value});assert.equal((await f.send()).data.capabilities.treatmentGuidanceVersion,0);}
+ const f=await fixture({inspectionScopeVersion:1,inspectorWorkspaceVersion:1,treatmentGuidanceVersion:1});assert.equal((await f.send()).data.capabilities.treatmentGuidanceVersion,1);assert.equal((await f.send('status',{tenant:false})).data.capabilities.treatmentGuidanceVersion,0);
+ const partial=await fixture({treatmentGuidanceVersion:1});assert.equal((await partial.send()).data.capabilities.treatmentGuidanceVersion,0);
+});

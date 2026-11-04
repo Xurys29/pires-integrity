@@ -6,6 +6,28 @@
   "use strict";
   const statusLabels = Object.freeze({ planejada: "Planejada", rascunho: "Rascunho", em_andamento: "Em andamento", em_revisao: "Enviada para revisão", pendencia_tecnica: "Pendente de gestão técnica", concluida: "Execução registrada" });
   const typeLabel = (type) => ({ visual: "Inspeção visual · LVT", espessura: "Medição de espessura" })[type] || "Modalidade a conferir";
+  function describeTreatmentGuidance(value){
+    if(value?.status!=="verified_link"||value.canCalculateDue!==false||value.due!==null||value.score!==null||!value.ruleRef||!value.guidance)return value?.status==="conflict"?"Conflito de aplicabilidade: a recomendação original é preservada e a gestão técnica deve conferir a regra.":"A regra específica está pendente de conferência. A tratativa continua abrindo a RTI para o gestor.";
+    const duration=value.guidance.durationReference||{},unit=duration.unit==="month"?"meses":duration.unit==="day"?(duration.value===1?"dia":"dias"):null,
+      reference=duration.kind==="range"&&unit?duration.minimum+"–"+duration.maximum+" "+unit:duration.kind==="stated_duration"&&unit?duration.value+" "+unit:duration.kind==="immediate_reference"?"Imediato, sem conversão presumida em horas":"Prazo de referência a conferir";
+    return "Orientação Pires: "+value.guidance.actionReference+" Referência: "+reference+". A recomendação original do item é preservada; a data limite depende da regra de contagem e da avaliação aplicável.";
+  }
+  function previewTreatmentGuidance(catalog,item,conditionId,recommendationId){
+    const object=value=>value&&typeof value==="object"&&!Array.isArray(value),text=value=>typeof value==="string"&&value.trim().length>0,keys=(value,allowed)=>object(value)&&Object.keys(value).every(key=>allowed.includes(key)),same=(a,b)=>{try{const stable=(_,value)=>value&&typeof value==="object"&&!Array.isArray(value)?Object.fromEntries(Object.keys(value).sort().map(key=>[key,value[key]])):value;return JSON.stringify(a,stable)===JSON.stringify(b,stable);}catch{return false;}};
+    if(!recommendationId)return{status:"not_selected"};
+    const recommendations=(Array.isArray(item.recommendations)?item.recommendations:[]).filter(choice=>choice.id===recommendationId),conditions=(Array.isArray(item.conditions)?item.conditions:[]).filter(choice=>choice.id===conditionId);
+    if(recommendations.length!==1)return{status:"invalid_reference"};if(recommendations[0].requiresTreatment===false)return{status:"not_applicable"};if(conditions.length!==1)return{status:"invalid_reference"};
+    if(item.guidanceBindings===undefined||item.guidanceBindings===null)return{status:"pending_mapping"};
+    if(!Array.isArray(item.guidanceBindings)||item.guidanceBindings.some(binding=>!object(binding)||!text(binding.conditionId)||!text(binding.recommendationId)||!text(binding.mappingStatus)))return{status:"conflict"};
+    const matches=item.guidanceBindings.filter(binding=>binding.conditionId===conditionId&&binding.recommendationId===recommendationId);
+    if(matches.length!==1)return{status:matches.length?"conflict":"pending_mapping"};
+    const binding=matches[0],condition=item.conditions?.find(choice=>choice.id===conditionId),recommendation=item.recommendations?.find(choice=>choice.id===recommendationId),definition=(Array.isArray(catalog.guidanceRegistry?.entries)?catalog.guidanceRegistry.entries:[]).find(entry=>same(entry.ruleRef,binding.ruleRef));
+    if(!keys(binding,["conditionId","recommendationId","mappingStatus","ruleRef","mappingEvidence"]))return{status:"invalid_reference"};
+    if(["conflict","pending_specific_review"].includes(binding.mappingStatus))return{status:binding.mappingStatus};
+    const evidence=binding.mappingEvidence;
+    if(binding.mappingStatus!=="verified_link"||!condition||!recommendation||!definition||!keys(evidence,["conditionSource","recommendationSource","reviewReference"])||Object.keys(evidence).length!==3||!object(condition.source)||!Object.keys(condition.source).length||!object(recommendation.source)||!Object.keys(recommendation.source).length||!same(evidence.conditionSource,condition.source)||!same(evidence.recommendationSource,recommendation.source)||!text(evidence.reviewReference)||[...evidence.reviewReference.trim()].length>2000)return{status:"invalid_reference"};
+    return{status:"verified_link",ruleRef:definition.ruleRef,guidance:definition.guidance,canCalculateDue:false,due:null,score:null};
+  }
   function describe(inspection) {
     const progress = inspection?.progress || {}, answered = Number.isInteger(progress.answered) ? progress.answered : 0,
       total = Number.isInteger(progress.total) ? progress.total : 0, status = inspection?.executionStatus || inspection?.status;
@@ -292,7 +314,7 @@
           pointRecord = pointRows.length === 1 && (!prior.pointId || pointRows[0].id === prior.pointId) ? pointRows[0] : null;
         if (!point.value && pointRecord?.label) point.value = pointRecord.label;
         if (workflowEnabled) note(box, pointRecord ? "Referência de campo salva: " + pointRecord.label + ". A posição no desenho ainda está pendente de vínculo ao documento." : "O rótulo registra uma referência de campo. A posição no isométrico permanece pendente de conferência e vínculo ao documento.", "inspection-source inspection-point-reference");
-        const provenance = note(box, "", "inspection-source"), pendingNote = note(box, "", "inspection-technical-pending"), recommendationNote = note(box, "", "inspection-note"), actionNote = note(box, "", "inspection-action-note");
+        const provenance = note(box, "", "inspection-source"), pendingNote = note(box, "", "inspection-technical-pending"), recommendationNote = note(box, "", "inspection-note"), actionNote = note(box, "", "inspection-action-note"),guidanceNote=note(box,"","inspection-guidance-note");
         const update = () => {
           const unknown = condition.value === "__not_covered__";
           recommendation.disabled = !editable || unknown || !condition.value;
@@ -305,6 +327,8 @@
           const selectedRecommendation = item.recommendations?.find((entry) => entry.id === recommendation.value);
           actionNote.textContent = !workflowEnabled && typeof selectedRecommendation?.requiresTreatment === "boolean" ? "Esta escolha exige o backend atualizado dos dois caminhos de resultado. A gravação desta seleção não está habilitada nesta versão." : selectedRecommendation?.requiresTreatment === true ? "Esta escolha exige tratativa: informe o ponto e anexe foto. Ao salvar, a mesma RTI será aberta ou atualizada automaticamente, sem duplicação." : selectedRecommendation?.requiresTreatment === false ? "Esta escolha documental foi classificada sem tratativa; ela não abre uma nova RTI." : workflowEnabled && selectedRecommendation ? "Esta recomendação precisa de conferência da gestão técnica para definir a tratativa. Mantenha o rascunho pendente; nenhum prazo será presumido." : "";
           point.setAttribute("aria-required", workflowEnabled && selectedRecommendation?.requiresTreatment === true ? "true" : "false");
+          if(selectedRecommendation?.requiresTreatment===true&&ctx().capabilities?.treatmentGuidanceVersion===1){const preview=previewTreatmentGuidance(catalog,item,condition.value,recommendation.value),prefix=preview.status==="verified_link"?(prior.treatmentGuidance?.status==="verified_link"&&prior.conditionId===condition.value&&prior.recommendationId===recommendation.value?"Vínculo automático salvo. ":"Regra da seleção · vínculo ao salvar. "):"";guidanceNote.textContent=prefix+describeTreatmentGuidance(preview);}
+          else guidanceNote.textContent=selectedRecommendation?.requiresTreatment===true?"O vínculo automático da regra específica precisa ser confirmado pelo serviço. A recomendação e a RTI não serão substituídas por uma regra genérica.":"";
           refreshOutcome();
         };
         condition.onchange = update; recommendation.onchange = update; update();
@@ -455,5 +479,5 @@
     }
     return Object.freeze({ enabled, render, renderAssetList(parent, route) { return enabled() ? list(parent, route) : false; }, invalidate() { generation++; } });
   }
-  return Object.freeze({ typeLabel, describe, create });
+  return Object.freeze({ typeLabel, describe, describeTreatmentGuidance, previewTreatmentGuidance, create });
 });

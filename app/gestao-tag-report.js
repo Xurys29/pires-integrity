@@ -28,10 +28,10 @@
   const clone = (value) => JSON.parse(canonical(value));
   const exactJSON = (value) => canonical(value, new Set(), { remaining: 5 * 1024 * 1024 }, true), cloneExact = (value) => JSON.parse(exactJSON(value));
   function deepFreeze(value) { if (value && typeof value === "object") { Object.values(value).forEach(deepFreeze); Object.freeze(value); } return value; }
-  async function hash(value) {
+  async function hash(value, exact = false) {
     const crypto = root.crypto || (typeof require === "function" ? require("node:crypto").webcrypto : null);
     if (!crypto?.subtle) throw Error("A conferência de integridade do conteúdo está indisponível.");
-    const serialized = hasBinding(field(field(value, "content"), "execution")) ? exactJSON(value) : canonical(value);
+    const serialized = exact || hasBinding(field(field(value, "content"), "execution")) ? exactJSON(value) : canonical(value);
     const bytes = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(serialized)));
     return "sha256:" + Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
   }
@@ -135,12 +135,81 @@
       || typeof binding.procedureReference !== "string" || !binding.procedureReference.trim() || !UUID.test(binding.selectedBy || "") || typeof binding.selectedAt !== "string" || !Number.isFinite(Date.parse(binding.selectedAt)) || !Number.isSafeInteger(binding.selectionVersion) || binding.selectionVersion < 1 || binding.selectionVersion > inspection.version
       || !binding.scope || Object.keys(binding.scope).some((key) => !pinnedScopeKeys.includes(key)) || pinnedScopeKeys.some((key) => !own(binding.scope, key))) throw Error("Vínculo imutável do catálogo ausente ou divergente dos ponteiros salvos da execução.");
     for (const key of ["ownerId", "inspectionId", "contractId", "systemId", "assetId"]) if (binding.scope[key] !== scope[key]) throw Error("Vínculo do catálogo pertence a outro escopo de inspeção.");
-    if (binding.scope.inspectionType !== inspection.type || binding.scope.assetType !== asset.type || Object.keys(catalog).some((key) => !catalogKeys.includes(key)) || catalogKeys.some((key) => !own(catalog, key))
+    if (binding.scope.inspectionType !== inspection.type || binding.scope.assetType !== asset.type || Object.keys(catalog).some((key) => !catalogKeys.includes(key) && key !== "guidanceRegistry") || catalogKeys.some((key) => !own(catalog, key))
       || catalog.id !== binding.catalogId || catalog.ownerId !== scope.ownerId || !UUID.test(catalog.tenantId || "") || catalog.status !== "verified" || catalog.versionLabel !== binding.versionLabel || catalog.procedureReference !== binding.procedureReference
       || !catalog.applicability || typeof catalog.applicability !== "object" || Array.isArray(catalog.applicability) || !catalog.source || typeof catalog.source !== "object" || Array.isArray(catalog.source) || typeof catalog.verifiedAt !== "string" || !Number.isFinite(Date.parse(catalog.verifiedAt))) throw Error("Snapshot fixado do catálogo diverge do vínculo, procedimento ou escopo da inspeção.");
     // contentHash is PostgreSQL's opaque JSON token. Equality here cross-checks
     // saved SQL responses; this helper does not recompute it using JS ordering.
     return binding;
+  }
+  // Approved representation hashes, separate from the opaque PostgreSQL catalogue
+  // token. Rehashing a caller-supplied registry cannot approve a new rule body.
+  const guidanceHashes = Object.freeze({
+    leve: "2fd5e70743ae27c05ec9b60ded0b684b61db772bf5426a8cf708fc6870c17338",
+    media: "2a0f760da4e3623f00e46654e673a77f114d58135d430feda106b8381dc3f811",
+    severa: "e086459ffba3a5e98483b5a6f6f89e56c3f7598003eb58ea2538e823ee6d689e",
+    urgente: "06a25bbb50cf91d4654300ca85d3e0a23bd32b874051b256810ef7904cc9ef9e",
+  });
+  const object = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
+  async function trustedGuidanceRegistry(registry) {
+    if (!object(registry) || Object.keys(registry).sort().join(",") !== "entries,registryId,schemaVersion" || registry.schemaVersion !== 1 || registry.registryId !== "pires-corrosion-guidance-registry" || !Array.isArray(registry.entries) || registry.entries.length !== 4) return false;
+    const ids = Object.keys(guidanceHashes);
+    for (let index = 0; index < ids.length; index++) {
+      const entry = registry.entries[index], entryId = ids[index], expected = { referenceId: "pires-corrosion-treatment-guidance", representationVersion: 1, entryId, contentHash: guidanceHashes[entryId] };
+      if (!object(entry) || Object.keys(entry).sort().join(",") !== "guidance,ruleRef" || exactJSON(entry.ruleRef ?? null) !== exactJSON(expected) || !object(entry.guidance) || await hash(entry.guidance, true) !== "sha256:" + expected.contentHash) return false;
+    }
+    return true;
+  }
+  function guidanceProjection(definition, condition, recommendation, registry, trusted) {
+    const result = { schemaVersion: 1, status: "pending_mapping", catalogItemId: definition.id, conditionId: condition?.id || null, recommendationId: recommendation?.id || null,
+      ruleRef: null, mappingEvidence: null, guidance: null, referenceOnly: true, canCalculateDue: false, due: null, score: null, operationalActionAuthorized: false, recommendationOverrideAuthorized: false };
+    if (!condition || !recommendation) return { ...result, status: "not_selected" };
+    if (recommendation.requiresTreatment === false) return { ...result, status: "not_applicable" };
+    const bindings = definition.guidanceBindings;
+    if (bindings === undefined || bindings === null) return result;
+    if (!Array.isArray(bindings) || bindings.some((binding) => !object(binding) || ["conditionId", "recommendationId", "mappingStatus"].some((key) => typeof binding[key] !== "string" || !binding[key].trim()))) return { ...result, status: "conflict" };
+    const selected = bindings.filter((binding) => object(binding) && binding.conditionId === condition.id && binding.recommendationId === recommendation.id);
+    if (!selected.length) return result;
+    if (selected.length !== 1) return { ...result, status: "conflict" };
+    const binding = selected[0], evidence = binding.mappingEvidence;
+    if (object(evidence)) result.mappingEvidence = evidence;
+    if (Object.keys(binding).some((key) => !["conditionId", "recommendationId", "mappingStatus", "ruleRef", "mappingEvidence"].includes(key))) return { ...result, status: "invalid_reference" };
+    if (binding.mappingStatus === "conflict") return { ...result, status: "conflict" };
+    if (binding.mappingStatus === "pending_specific_review") return { ...result, status: "pending_specific_review" };
+    if (binding.mappingStatus !== "verified_link" || !object(evidence) || Object.keys(evidence).length !== 3 || Object.keys(evidence).some((key) => !["conditionSource", "recommendationSource", "reviewReference"].includes(key)) || !object(condition.source) || !Object.keys(condition.source).length || !object(recommendation.source) || !Object.keys(recommendation.source).length
+      || exactJSON(evidence?.conditionSource ?? null) !== exactJSON(condition.source) || exactJSON(evidence?.recommendationSource ?? null) !== exactJSON(recommendation.source)
+      || typeof evidence?.reviewReference !== "string" || !evidence.reviewReference.trim() || [...evidence.reviewReference.trim()].length > 2000) return { ...result, status: "invalid_reference" };
+    const entry = trusted && registry.entries.find((row) => exactJSON(row.ruleRef) === exactJSON(binding.ruleRef ?? null));
+    if (!entry) return { ...result, status: "invalid_reference" };
+    return { ...result, status: "verified_link", ruleRef: entry.ruleRef, guidance: entry.guidance };
+  }
+  async function validateTreatmentGuidance(content) {
+    const { catalog, execution, items, findings, rtis } = content, rows = [...(execution.answers || []), ...items, ...findings, ...rtis], hasGuidance = (row) => row?.treatmentGuidance !== undefined && row?.treatmentGuidance !== null;
+    if (!own(catalog, "guidanceRegistry") && !rows.some(hasGuidance)) return;
+    const trusted = hasBinding(execution) && await trustedGuidanceRegistry(catalog.guidanceRegistry), definitions = new Map((catalog.items || []).map((item) => [item.id, item]));
+    const check = (row, definition, conditionId, recommendationId, required) => {
+      if (!hasGuidance(row) && !required) return;
+      if (!definition) throw Error("Orientação de tratativa sem item do catálogo fixado.");
+      const condition = definition.conditions?.find((entry) => entry.id === conditionId), recommendation = definition.recommendations?.find((entry) => entry.id === recommendationId),
+        expected = guidanceProjection(definition, condition, recommendation, catalog.guidanceRegistry, trusted);
+      if (exactJSON(row.treatmentGuidance ?? null) !== exactJSON(expected)) throw Error("Orientação de tratativa diverge da seleção, fontes, vínculo ou registro de referência fixado.");
+      if (hasGuidance(row) && recommendation) {
+        if (row.recommendationSource !== undefined && exactJSON(row.recommendationSource) !== exactJSON(recommendation.source)) throw Error("Fonte da orientação de tratativa diverge da recomendação salva.");
+        if (row.conditionSource !== undefined && condition && exactJSON(row.conditionSource) !== exactJSON(condition.source)) throw Error("Fonte da orientação de tratativa diverge da condição salva.");
+      }
+    };
+    for (const answer of execution.answers || []) {
+      const definition = definitions.get(answer.catalogItemId), item = items.find((row) => row.catalogItemId === answer.catalogItemId), required = own(catalog, "guidanceRegistry") || hasGuidance(answer) || hasGuidance(item);
+      check(answer, definition, answer.conditionId, answer.recommendationId, required); check(item, definition, answer.conditionId, answer.recommendationId, required);
+    }
+    for (const item of items) if (!execution.answers?.some((answer) => answer.catalogItemId === item.catalogItemId) && hasGuidance(item)) check(item, definitions.get(item.catalogItemId), item.conditionId, item.recommendationId, false);
+    for (const row of [...findings, ...rtis]) {
+      const item = items.find((entry) => entry.id === row.lvtItemId), answer = execution.answers?.find((entry) => entry.catalogItemId === item?.catalogItemId), related = rtis.filter((rti) => rti.id === row.id || rti.findingId === row.id),
+        historical = row.recommendationWithdrawn === true || row.status === "encerrada" || related.some((rti) => rti.recommendationWithdrawn === true || rti.status === "encerrada") || row.recommendationId !== answer?.recommendationId;
+      const saved = row.treatmentGuidance, definition = definitions.get(historical && hasGuidance(row) ? saved.catalogItemId : item?.catalogItemId);
+      check(row, definition, historical && hasGuidance(row) ? saved.conditionId : answer?.conditionId, historical ? row.recommendationId : answer?.recommendationId, !historical && (own(catalog, "guidanceRegistry") || hasGuidance(answer)));
+      if (hasGuidance(row) && (saved.recommendationId !== row.recommendationId || row.conditionId !== undefined && saved.conditionId !== row.conditionId || row.catalogItemId !== undefined && saved.catalogItemId !== row.catalogItemId)) throw Error("Orientação histórica diverge dos IDs do achado ou RTI preservados.");
+    }
   }
   function validateContent(content) {
     const { scope, company, contract, system, asset, inspection, execution, items, photos, findings, rtis, catalog, recordVersions } = content;
@@ -274,7 +343,7 @@
     const provenance = select(arrayShape(field(snapshot, "sourceProvenance") || [], "proveniências"), (source) => sourceIds.has(field(source, "sourceId")), "proveniências");
     if (new Set(provenance.map((source) => field(source, "sourceId"))).size !== provenance.length) throw Error("Proveniência selecionada repetida.");
     content.sourceProvenance = clone(provenance).sort((a, b) => a.sourceId.localeCompare(b.sourceId));
-    validateContent(content);
+    validateContent(content); await validateTreatmentGuidance(content);
     return deepFreeze({ schema: SCHEMA, version: 1, draft: true, canIssue: false, content, contentDigest: await hash({ schema: SCHEMA, content }), pending: pendingFor(content) });
   }
   function pendingFor(content) {
@@ -285,6 +354,7 @@
     if (!content.items.length) pending.push("Nenhum item respondido nesta execução; ausência não significa condição boa.");
     for (const item of content.items) { const answer = content.execution.answers?.find((row) => row.catalogItemId === item.catalogItemId); if (!answer || !answer.conditionId && !answer.notCovered) pending.push("Item " + item.itemKey + ": resposta pendente."); if (answer?.notCovered) pending.push("Item " + item.itemKey + ": condição não contemplada; gestão técnica pendente."); }
     for (const rti of content.rtis) if (rti.deadlineReviewRequired) pending.push("RTI " + rti.id + ": prazo registrado pendente de revisão técnica.");
+    for (const row of [...content.items, ...content.rtis]) if (row.treatmentGuidance && !["verified_link", "not_selected", "not_applicable"].includes(row.treatmentGuidance.status)) pending.push("Registro " + row.id + ": vínculo da orientação Pires pendente de gestão técnica; recomendação e RTI preservadas.");
     // Previously saved generic conferences retain their old derived messages.
     // New outcomes are explicit declarations, never inferred from an empty RTI list.
     if (own(content.execution, "outcome") || own(content.execution, "coverage")) {
@@ -340,6 +410,7 @@
   }
   async function createPdf(record, images = {}, options = {}, jsPDFctor) {
     const content = validateContent((hasBinding(field(record.content, "execution")) ? cloneExact : clone)(record.content));
+    await validateTreatmentGuidance(content);
     if (record.schema !== SCHEMA || record.contentDigest !== await hash({ schema: SCHEMA, content })) throw Error("O conteúdo congelado mudou. Gere nova conferência dos registros salvos.");
     const outcome = outcomeOf(content.execution), goodCondition = outcome === "good_condition", coverage = content.execution.coverage || null,
       imageOf = (id) => images instanceof Map ? images.get(id) : images[id], requiredImages = new Map();
@@ -379,6 +450,24 @@
     function room(height) { if (y + height > BOTTOM) { if (doc.getNumberOfPages() >= 250) throw Error("Rascunho excede o limite de páginas."); doc.addPage(); header(); } }
     function paragraph(value, bold = false, size = 10) { font(size, bold); const lines = doc.splitTextToSize(present(value), WIDTH); for (const line of lines) { room(5); font(size, bold); doc.text(line, M, y); y += 5; } y += 2; }
     function heading(value) { room(13); y += 3; paragraph(value, true, 12); }
+    function renderTreatmentGuidance(value, historical = false) {
+      if (!value) return;
+      paragraph(historical ? "Orientação Pires histórica preservada — separada da recomendação LVT atual" : "Orientação Pires de referência — separada da recomendação LVT original", true, 9);
+      if (value.status !== "verified_link") {
+        paragraph(({ pending_mapping: "Vínculo específico entre a escolha e a orientação pendente.", conflict: "Conflito de vínculos; revisão pela gestão técnica necessária.", pending_specific_review: "Revisão específica do item e das fontes ainda pendente.", invalid_reference: "Versão ou conteúdo da referência não conferido.", not_selected: "Nenhuma orientação aplicada sem condição e recomendação selecionadas.", not_applicable: "Escolha sem tratativa; nenhuma orientação de tratamento aplicada." })[value.status], false, 9);
+        paragraph("Sem prazo, pontuação ou ação operacional automática; a pendência não retira a recomendação ou a RTI.", false, 9); return;
+      }
+      const guidance = value.guidance, duration = guidance.durationReference, ref = value.ruleRef;
+      paragraph("Intensidade vinculada na revisão específica: " + guidance.label + ". Ação de referência Pires: " + guidance.actionReference, false, 9);
+      const unit = (number, name) => number + " " + (name === "month" ? number === 1 ? "mês" : "meses" : number === 1 ? "dia" : "dias"), durationText = duration.kind === "range" ? duration.minimum + " a " + unit(duration.maximum, duration.unit)
+        : duration.kind === "stated_duration" ? unit(duration.value, duration.unit) : "Imediato, sem definição operacional automática";
+      paragraph("Faixa/duração de referência: " + durationText + ". Nenhuma data de vencimento foi calculada.", false, 9);
+      paragraph("Referência: " + ref.referenceId + " · representação " + ref.representationVersion + " · entrada " + ref.entryId + " · SHA-256 " + ref.contentHash, false, 8);
+      paragraph("Revisão específica do vínculo: " + value.mappingEvidence.reviewReference, false, 8);
+      paragraph("Marco da referência: fim declarado da inspeção; horário, calendário e contagem não definidos por esta orientação.", false, 9);
+      for (const disposition of guidance.conditionalDispositions) paragraph(disposition.action + ": depende de avaliação de risco e autoridade humana; não autorizada automaticamente.", false, 9);
+      paragraph("Referência sem cálculo de vencimento ou pontuação; não substitui a recomendação LVT, a matriz aprovada nem autoriza ação operacional.", false, 9);
+    }
     const generatedAt = options.generatedAt || new Date().toISOString();
     if (!Number.isFinite(Date.parse(generatedAt))) throw Error("Data de geração do rascunho inválida.");
     doc.setProperties({ title: "Rascunho de conferência - " + present(content.asset.tag), subject: "Conferência individual sem emissão ou assinatura técnica", creator: "Pires - conferência genérica de TAG" });
@@ -427,6 +516,7 @@
       const savedFinding = content.findings.find((row) => row.lvtItemId === item.id && row.recommendationId === answer?.recommendationId);
       paragraph("Recomendação selecionada: " + present(recommendation ? recommendation.requiresTreatment === false ? item.recommendation : savedFinding?.recommendation : null, "Não selecionada; ausência não significa aprovação"));
       if (recommendation) paragraph("Fonte da recomendação: " + sourceText(recommendation.source), false, 8);
+      renderTreatmentGuidance(item.treatmentGuidance);
       if (recommendation?.requiresTreatment === false) paragraph("Escolha documental sem tratativa: não cria nova RTI.");
       else if (recommendation && recommendation.requiresTreatment !== true) paragraph("Escolha legada sem classificação de tratativa: revisão técnica pendente.");
       for (const photo of sorted(content.photos.filter((row) => row.lvtItemId === item.id))) {
@@ -448,6 +538,7 @@
         const rtiPhotos = photoReferences.filter((reference) => reference.rtiReferences.some((linked) => linked.id === rti.id));
         if (rtiPhotos.length) paragraph("Evidências fotográficas vinculadas à RTI: " + rtiPhotos.map((reference) => reference.label).join(", "), false, 9);
         paragraph("Recomendação registrada na RTI: " + present(rti.recommendation));
+        renderTreatmentGuidance(rti.treatmentGuidance, rti.recommendationWithdrawn === true || rti.status === "encerrada" || rti.recommendationId !== answer?.recommendationId);
         if (rti.recommendationWithdrawn) paragraph("Recomendação retirada no rascunho; RTI preservada para gestão técnica.");
         paragraph("Prazo manual registrado: " + present(rti.due, "Não definido"));
         paragraph("Prazo histórico na fonte: " + present(rti.sourceDue, "Não informado"));
