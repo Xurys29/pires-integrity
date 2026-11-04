@@ -53,7 +53,8 @@ function buildCompilerPlan(workspace, includeBaseline = false) {
 }
 function negativeSources() {
   const header = 'import { createGestaoHandler } from "' + IMPORT + '";\n' +
-    'type Reference = NonNullable<Parameters<typeof createGestaoHandler>[0]["preparedSources"]>[number];\n';
+    'type Options = typeof createGestaoHandler extends (options: infer Input) => unknown ? Input : never;\n' +
+    'type Reference = NonNullable<Options["preparedSources"]>[number];\n';
   return {
     'invalid-id': header + 'export const invalid: Reference = { id: 17, name: "FIXTURE-ONLY.pdf" };\n',
     'invalid-name': header + 'export const invalid: Reference = { id: "fixture", name: 17 };\n',

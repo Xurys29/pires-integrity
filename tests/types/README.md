@@ -1,6 +1,8 @@
 # Regressão de tipos das referências preparadas
 O teste gestao-prepared-sources.ts verifica o contrato real de createGestaoHandler sem casts ou supressões. O pacote composto e o checkout podem ter caminhos diferentes para o core; antes de atribuir causa a um erro, compare seus arquivos resolvidos, hashes, configuração e diagnóstico completo.
 
+Os seis erros foram reproduzidos com o mesmo core em Deno 2.9.8 / TypeScript 6.0.3: Parameters<typeof createGestaoHandler> produzia never para o parâmetro inteiro. A extração direta do parâmetro único recupera o contrato exportado. Todas as asserções foram preservadas; os negativos usam a mesma extração e precisam continuar falhando por seus valores incompatíveis. O core de produção não mudou nesta correção.
+
 O executor público cria uma árvore temporária própria, copia o core escolhido e o teste original **sem mudar seus bytes**, confere a identidade e executa um compilador Deno já existente. Não instala nada, não lê originais privados, não limpa cache global e não executa a aplicação.
 
 Na raiz de um checkout completo desta revisão:

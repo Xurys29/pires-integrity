@@ -3,7 +3,10 @@
 //   deno check tests/types/gestao-prepared-sources.ts
 import { createGestaoHandler } from "../../supabase/functions/_shared/gestao-api-core.mjs";
 
-type HandlerOptions = Parameters<typeof createGestaoHandler>[0];
+// Extract this unary JS factory's object parameter directly. Under Deno 2.9.8,
+// Parameters<typeof createGestaoHandler> collapses to never, while this callable
+// shape preserves the actual exported options without widening their types.
+type HandlerOptions = typeof createGestaoHandler extends (options: infer Options) => unknown ? Options : never;
 type PreparedSourceReferences = NonNullable<HandlerOptions["preparedSources"]>;
 type PreparedSourceReference = PreparedSourceReferences[number];
 
@@ -16,7 +19,7 @@ type IsUnknown<T> = unknown extends T
   ? [keyof T] extends [never] ? true : false
   : false;
 
-// These real assignments reproduce TS2322 with the former never[] default.
+// Real assignments require the exported metadata contract to accept valid data.
 // A readonly input is valid because the handler only reads/maps references.
 export const populatedReferences: PreparedSourceReferences = [
   { id: "fixture-prepared-source", name: "FIXTURE-ONLY.pdf" },
