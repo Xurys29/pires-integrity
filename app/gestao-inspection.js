@@ -360,7 +360,7 @@
       const photoList = el("fieldset", undefined, "inspection-coverage-photos"), legend = el("legend", "Fotografias que documentam esta cobertura"); photoList.append(legend); box.append(photoList);
       const selectedPhotos = new Set(Array.isArray(savedCoverage.photoIds) ? savedCoverage.photoIds : []), photoSummary = note(box, "", "inspection-coverage-photo-summary"),
         emptyPhotos = el("p", "Anexe fotos aos itens e atualize a consulta para conferir seus vínculos, se necessário.", "inspection-note");
-      note(box, "O prazo da tratativa depende da matriz Pires aprovada. Enquanto a política estiver pendente, a Gestão de RTI mantém prazo manual justificado, contado a partir da inspeção realizada.");
+      note(box, "A versão e a regra da matriz Pires ainda não estão vinculadas a este registro. A Gestão de RTI mantém o prazo manual justificado e a data da inspeção como marco para conferência técnica.");
       const facts = () => controls.map((control) => ({ ...control,
         selectedCondition: control.item.conditions?.find((entry) => entry.id === control.condition.value),
         selectedRecommendation: control.item.recommendations?.find((entry) => entry.id === control.recommendation.value) }));

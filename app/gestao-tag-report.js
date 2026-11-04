@@ -419,7 +419,7 @@
         paragraph("Prazo histórico na fonte: " + present(rti.sourceDue, "Não informado"));
         paragraph("Marco observado declarado: " + present(rti.deadlineAnchor?.date, "Pendente"));
         if (rti.deadlineReviewRequired) paragraph("Prazo registrado exige revisão técnica após alteração da base.");
-        paragraph("Nenhum prazo é calculado neste rascunho. A fonte histórica não confirma a situação atual.", false, 9);
+        paragraph("Versão e regra da matriz Pires não vinculadas a esta RTI. Nenhum prazo é calculado neste rascunho. A fonte histórica não confirma a situação atual.", false, 9);
       }
     }
     if (goodCondition && coverage.photoIds.some((id) => !embeddedPhotoIds.includes(id))) throw Error("Boas condições sem todas as fotos de cobertura incorporadas; nenhum PDF foi salvo.");
