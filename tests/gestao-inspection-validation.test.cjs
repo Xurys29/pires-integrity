@@ -61,7 +61,13 @@ async function reportTree(f,scope,label){
 test('validation: current manager/inspector/assistant-PLH/planner rights, pilot, licence and tenant boundaries',async t=>{
  const f=await fixture(t),ids=f.ids,inspections={};await catalogue(f);
  for(const [label,actor] of [['inspector',ids.inspector],['plh_fixture',ids.assistant],['planner',ids.planner]]){
-  const i=await f.inspect();inspections[label]=i;await f.assign(i,f.people[label]);
+  const i=await f.inspect();inspections[label]=i;
+  if(label==='plh_fixture'){
+   await assert.rejects(f.assign(i,f.people[label]),{code:'22023'});
+   // Restore only a historical assignment in this disposable fixture. The API
+   // must reject new reviewer assignments while retaining historical read gates.
+   await f.db.query("update pi_gestao_private.records set body=body||jsonb_build_object('assigneeProfessionalId',$1::text,'assigneeName','REVISOR HISTÓRICO SOMENTE FIXTURE') where tenant_id=$2 and id=$3",[f.people[label],f.ids.tenantA,i.id]);
+  }else await f.assign(i,f.people[label]);
   const list=await f.call('execution.list',{},actor);assert.equal(list.inspections.length,1,label);assert.equal(list.inspections[0].id,i.id);assert.equal(list.professionals.length,0);
   const own=await f.call('execution.get',{inspectionId:i.id},actor);assert.equal(own.canExecute,label==='inspector');assert.equal(own.writeAllowed,label==='inspector');assert.equal(own.canAssign,false);
   if(label==='inspector')assert.equal((await f.call('execution.start',{inspectionId:i.id,requestId:randomUUID()},actor)).execution.createdBy,actor);
