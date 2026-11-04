@@ -46,6 +46,9 @@ function configuredOrigin(value) {
     return url.origin;
   } catch { return null; }
 }
+function inspectionBackendAvailable(grant) {
+  return grant?.inspectionScopeVersion === 1 && grant?.inspectorWorkspaceVersion === 1;
+}
 function routeOf(request) {
   const url = new URL(request.url);
   if (url.search) fail(400, "invalid_route", "A rota não aceita parâmetros de consulta neste recorte.");
@@ -252,6 +255,7 @@ export function createGestaoHandler({ appOrigin, createUserClient, createService
       }
       if (route === "status" && request.method === "GET") {
         const grant = tenant ? await access() : null;
+        const inspectionAvailable = inspectionBackendAvailable(grant);
         if (!tenant && !(await permittedTenants()).length)
           fail(403, "access_denied", "O módulo ainda não está liberado para esta conta e empresa.");
         return json(200, {
@@ -261,9 +265,9 @@ export function createGestaoHandler({ appOrigin, createUserClient, createService
           tenant,
           pilot: true,
           role: grant?.role || null,
-          accessMode: !grant ? null : ["admin", "master"].includes(grant.role) ? "management" : ["planner", "assistant"].includes(grant.role) ? "consultation" : grant.role === "inspector" && grant.inspectionScopeVersion === 1 ? "assigned_inspector" : "scope_unavailable",
+          accessMode: !grant ? null : ["admin", "master"].includes(grant.role) ? "management" : ["planner", "assistant"].includes(grant.role) ? "consultation" : grant.role === "inspector" && inspectionAvailable ? "assigned_inspector" : "scope_unavailable",
           preparedSources: grant && ["admin", "master", "planner", "assistant"].includes(grant.role) ? preparedSources.map(({id,name}) => ({id,name})) : [],
-          capabilities: { workflowVersion: 2, inspectionExecutionVersion: 1, inspectorWorkspaceVersion: grant?.inspectionScopeVersion === 1 ? 1 : 0, assignedExecutionWrite: grant?.inspectionScopeVersion === 1 && grant?.inspectionWriteAllowed === true, xlsx: !grant || ["admin", "master", "planner", "assistant"].includes(grant.role), pdf: false, xls: false, operations: true, documentOriginals: !grant || ["admin", "master", "planner", "assistant"].includes(grant.role), photoOriginals: true, xlsxMaxBytes: MAX_FILE, documentMaxBytes: MAX_DOCUMENT, photoMaxBytes: MAX_FILE, write: grant?.write === true },
+          capabilities: { workflowVersion: 2, inspectionExecutionVersion: inspectionAvailable ? 1 : 0, inspectorWorkspaceVersion: inspectionAvailable ? 1 : 0, assignedExecutionWrite: inspectionAvailable && grant?.role === "inspector" && grant?.inspectionWriteAllowed === true, xlsx: !grant || ["admin", "master", "planner", "assistant"].includes(grant.role), pdf: false, xls: false, operations: true, documentOriginals: !grant || ["admin", "master", "planner", "assistant"].includes(grant.role), photoOriginals: true, xlsxMaxBytes: MAX_FILE, documentMaxBytes: MAX_DOCUMENT, photoMaxBytes: MAX_FILE, write: grant?.write === true },
         });
       }
       if (route === "tenants" && request.method === "GET") {
@@ -277,11 +281,15 @@ export function createGestaoHandler({ appOrigin, createUserClient, createService
       const manager = ["admin", "master"].includes(grant.role);
       const genericRead = manager || ["planner", "assistant"].includes(grant.role);
       const managerWrite = manager && grant.write === true;
-      const scopedInspectorWrite = grant.role === "inspector" && grant.inspectionScopeVersion === 1 && grant.inspectionWriteAllowed === true;
+      const scopedInspectorWrite = grant.role === "inspector" && inspectionBackendAvailable(grant) && grant.inspectionWriteAllowed === true;
       const parts = route.split("/");
+      const inspectionRoute = parts[0] === "companies" && UUID.test(parts[1] || "") &&
+        (parts[2] === "execution" || parts[2] === "execution-context" || parts[2]?.startsWith("execution-") || parts[2] === "reports" && parts[3] === "contracts");
+      if (inspectionRoute && !inspectionBackendAvailable(grant))
+        fail(503, "inspection_backend_unavailable", "O banco ainda não confirmou a versão de execução e isolamento por atividade. Nenhuma operação foi iniciada.");
       const executionPost = parts.length === 3 && parts[0] === "companies" && UUID.test(parts[1] || "") && ["execution-start", "execution-save", "execution-submit"].includes(parts[2]);
       const executionPhoto = write && parts.length === 8 && parts[0] === "companies" && UUID.test(parts[1] || "") && parts[2] === "execution" && UUID.test(parts[3] || "") && parts[4] === "items" && UUID.test(parts[5] || "") && parts[6] === "photos" && UUID.test(parts[7] || "");
-      if (!write && grant.role === "inspector" && grant.inspectionScopeVersion !== 1)
+      if (!write && grant.role === "inspector" && !inspectionBackendAvailable(grant))
         fail(403, "scoped_backend_required", "A programação do inspetor exige o backend com autorização por atividade. Acesso genérico não foi liberado.");
       if (write && !managerWrite && !(scopedInspectorWrite && (executionPost || executionPhoto)))
         fail(403, "write_denied", "Esta operação exige administração da empresa de acesso.");

@@ -21,7 +21,7 @@ const workbook = {
 };
 
 test('execution Edge: exact owner routes and stable operation payload use user JWT without privileged client',async()=>{
- const h=await setup();
+ const h=await setup({grant:{inspectionScopeVersion:1,inspectorWorkspaceVersion:1}});
  for(const [route,action,payload] of [[`companies/${OWNER}/execution`,'execution.list',{ownerId:OWNER}],[`companies/${OWNER}/execution/${ASSET}`,'execution.get',{ownerId:OWNER,inspectionId:ASSET}]]){
   const result=await h.send(route);assert.equal(result.status,200);
   assert.deepEqual(h.events.findLast(e=>e.args?.p_action===action).args.p_payload,payload);
@@ -33,14 +33,14 @@ test('execution Edge: exact owner routes and stable operation payload use user J
  }
  assert.equal(h.serviceCount(),0);
  const readonly=await setup({grant:{write:false,role:'inspector'}});
- assert.equal((await readonly.send(`companies/${OWNER}/execution`)).status,403);
- assert.equal((await readonly.send(`companies/${OWNER}/execution-start`,{body:{inspectionId:ASSET,requestId:OTHER}})).status,403);
+ assert.equal((await readonly.send(`companies/${OWNER}/execution`)).status,503);
+ assert.equal((await readonly.send(`companies/${OWNER}/execution-start`,{body:{inspectionId:ASSET,requestId:OTHER}})).status,503);
  assert.equal(readonly.events.some(e=>e.args?.p_action==='execution.start'),false);
- const scopedReadonly=await setup({grant:{write:false,role:'inspector',inspectionScopeVersion:1,inspectionWriteAllowed:false}});
+ const scopedReadonly=await setup({grant:{write:false,role:'inspector',inspectionScopeVersion:1,inspectorWorkspaceVersion:1,inspectionWriteAllowed:false}});
  assert.equal((await scopedReadonly.send(`companies/${OWNER}/execution`)).status,200);
  assert.equal((await scopedReadonly.send(`companies/${OWNER}/execution-start`,{body:{inspectionId:ASSET,requestId:OTHER}})).status,403);
  assert.equal(scopedReadonly.events.some(e=>e.args?.p_action==='execution.start'),false);
- const denied=await setup({rpc:async()=>({error:{code:'42501'}})});
+ const denied=await setup({grant:{inspectionScopeVersion:1,inspectorWorkspaceVersion:1},rpc:async()=>({error:{code:'42501'}})});
  assert.equal((await denied.send(`companies/${OWNER}/execution/${ASSET}`)).status,403);
 });
 async function setup(options = {}) {
@@ -229,7 +229,7 @@ test("status sem tenant também exige par piloto SQL e tenants expõe somente pa
   });
   const status = await h.send("status");
   assert.equal(status.status, 200);
-  assert.deepEqual(status.data.capabilities, { workflowVersion: 2, inspectionExecutionVersion: 1, inspectorWorkspaceVersion: 0, assignedExecutionWrite: false, xlsx: true, pdf: false, xls: false, operations: true, documentOriginals: true, photoOriginals: true, xlsxMaxBytes: 8 * 1024 * 1024, documentMaxBytes: 32 * 1024 * 1024, photoMaxBytes: 8 * 1024 * 1024, write: false });
+  assert.deepEqual(status.data.capabilities, { workflowVersion: 2, inspectionExecutionVersion: 0, inspectorWorkspaceVersion: 0, assignedExecutionWrite: false, xlsx: true, pdf: false, xls: false, operations: true, documentOriginals: true, photoOriginals: true, xlsxMaxBytes: 8 * 1024 * 1024, documentMaxBytes: 32 * 1024 * 1024, photoMaxBytes: 8 * 1024 * 1024, write: false });
   assert.equal(status.data.pilot, true);
   assert.equal(status.data.user_id, USER);
   assert.deepEqual(h.events.filter(e => e.kind === "userRpc").map(e => [e.name, e.args?.p_tenant]), [
@@ -357,7 +357,7 @@ test("relatório usa escopo canônico do caminho, exige piloto e preserva rascun
 test("relatório contratual usa somente IDs canônicos do caminho e não aceita corpo, query ou caminho inválido", async () => {
   const contractId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", targetId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
   const snapshot = { company: { id: OWNER }, contract: { id: contractId, name: "Projeto isolado" }, system: { id: targetId }, draft: true, canIssue: false };
-  const h = await setup({ rpc: async (_name, args) => {
+  const h = await setup({ grant: { inspectionScopeVersion: 1, inspectorWorkspaceVersion: 1 }, rpc: async (_name, args) => {
     assert.equal(args.p_action, "reports.system");
     return { data: snapshot, error: null };
   } });
@@ -380,7 +380,7 @@ test("relatório contratual usa somente IDs canônicos do caminho e não aceita 
   const denied = await setup({ grant: { pilot: false } });
   assert.equal((await denied.send(`companies/${OWNER}/reports/contracts/${contractId}/system/${targetId}`)).status, 403);
   assert.equal(denied.events.some(e => e.args?.p_action === "reports.system"), false);
-  const foreignScope = await setup({ rpc: async (_name, args) => {
+  const foreignScope = await setup({ grant: { inspectionScopeVersion: 1, inspectorWorkspaceVersion: 1 }, rpc: async (_name, args) => {
     assert.deepEqual(args.p_payload, { ownerId: OWNER, contractId, campaignId: targetId });
     return { error: { code: "42501" } };
   } });
