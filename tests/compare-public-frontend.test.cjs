@@ -17,7 +17,8 @@ test('local real manifest has 61 rows, 59 baseline static, 62 candidate static a
   assert.ok(!p.expectedFetchUrls.some(url => url.endsWith('/_headers')));
   assert.ok(!p.files.some(row => row.path === 'runtime-config.js'));
   assert.equal(p.runtime.kind, 'runtime_metadata');
-  assert.deepEqual(p.candidateStaticDiff, { unchanged: 48, changed: 11, added: 3 });
+  // Auth sharing changes cloud.js and equipe-api.js in addition to the prior11.
+  assert.deepEqual(p.candidateStaticDiff, { unchanged: 46, changed: 13, added: 3 });
   assert.equal(Object.isFrozen(p), true); assert.equal(Object.isFrozen(p.files[0]), true);
 });
 test('origin and paths refuse alternate destinations, traversal, signed/query and encoded paths', () => {

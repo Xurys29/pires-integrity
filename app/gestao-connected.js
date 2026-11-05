@@ -65,13 +65,10 @@
     const cloudApi = dependencies.cloudApi || root.PiresCloud,
       sdkFactory = dependencies.sdkFactory || root.PiresSupabase?.createClient,
       fetcher = dependencies.fetch || root.fetch?.bind(root);
-    if (typeof cloudApi?.create !== "function" || typeof sdkFactory !== "function" || typeof fetcher !== "function")
+    if (typeof cloudApi?.create !== "function" || typeof cloudApi?.getClient !== "function" || typeof sdkFactory !== "function" || typeof fetcher !== "function")
       throw failure("Serviço conectado indisponível. A configuração local não será usada automaticamente.", "configuration_unavailable", 503);
-    let client;
-    const cloud = cloudApi.create(config, (...args) => {
-      client = sdkFactory(...args);
-      return client;
-    });
+    const cloud = cloudApi.create(config, sdkFactory);
+    const client = cloudApi.getClient(config, sdkFactory);
     if (!cloud.configured || !client?.auth?.getSession)
       throw failure("Sessão do aplicativo indisponível.", "configuration_unavailable", 503);
     const settings = cloud.config,
