@@ -16,7 +16,7 @@ As seleções de organização de conta/Gestão/Equipe continuam separadas. Cada
 
 ## Evidência e limites
 
-Os 11 testes novos de unidade passaram. No Chromium154 com o SDK vendorizado, os 10 cenários de cada versão passaram: a base `5642786` reproduziu três clientes/dois avisos na página inicial; a candidata usou um cliente/zero avisos. A Gestão isolada permaneceu com um cliente. Desktop e mobile cobrem renovação e headers atuais, saída/nova entrada, renovação rejeitada com token ainda válido, sessão expirada, acesso revogado e Gestão isolada. Nenhuma chamada externa inesperada ou erro de página foi observado.
+Os 11 testes novos de unidade passaram. No Chromium154 com o SDK vendorizado, os 12 cenários de cada versão passaram. No caminho normal da página inicial, com operations=true, a base `5642786` criou dois clientes/um aviso e a candidata usou um cliente/zero avisos. O caminho alternativo Equipe, forçado na fixture, passou de três clientes/dois avisos para um/zero. A Gestão isolada permaneceu com um cliente. Os caminhos foram conferidos em desktop e mobile, incluindo renovação e headers atuais, saída/nova entrada, renovação rejeitada com token ainda válido, sessão expirada e acesso revogado. Gestão direta não chamou a API de equipe. Nenhuma chamada externa inesperada ou erro de página foi observado.
 
 A suíte final completa teve **526 testes:520 aprovados,3 falhas e3 ignorados**. As três falhas são do recorte UTC/São Paulo de planejamento descrito abaixo, comprovadamente presente na base; não são uma aprovação geral. Os três ignorados dependem de originais privados. A verificação de sintaxe/padrões de credenciais passou em **161 arquivos JavaScript**, sem instalar programas. O diff foi conferido preservando os finais CRLF dos arquivos existentes.
 

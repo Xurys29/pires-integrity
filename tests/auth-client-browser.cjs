@@ -103,7 +103,7 @@ async function fixture(browser, base, viewport, kind) {
     }
     const api = "/functions/v1/gestao-api/";
     if (url.pathname === api + "status") return json({ actor: "GESTOR SOMENTE FIXTURE", user_id: ids.user, mode: "supabase_integrado",
-      capabilities: { operations: kind === "standalone", write: true, accessMode: "management", actorRole: "admin", inspectionScopeVersion: 1 } });
+      capabilities: { operations: ["standalone", "management-direct"].includes(kind), write: true, accessMode: "management", actorRole: "admin", inspectionScopeVersion: 1 } });
     if (url.pathname === api + "tenants") return json([{ id: ids.tenant, name: "ORGANIZAÇÃO SOMENTE FIXTURE" }]);
     if (url.pathname === api + "companies") return json([{ id: ids.owner, name: "CLIENTE SOMENTE FIXTURE" }]);
     unexpected.push(url.origin + url.pathname); return json({ code: "unexpected_fixture_route" }, 500);
@@ -139,11 +139,12 @@ async function waitForCall(fixture, predicate, description) {
   try {
     browser = await chromium.launch({ executablePath: process.env.PIRES_CHROMIUM || "/usr/bin/chromium", headless: true, args: ["--no-sandbox"] });
     for (const [device, viewport] of [["desktop", { width: 1440, height: 1000 }], ["mobile", { width: 390, height: 844 }]]) {
-      for (const kind of ["healthy", "refresh-rejected", "expired-session", "access-denied", "standalone"]) {
+      for (const kind of ["healthy", "refresh-rejected", "expired-session", "access-denied", "standalone", "management-direct"]) {
         const f = await fixture(browser, base, viewport, kind), page = f.page;
         try {
           await page.goto(base + (kind === "standalone" ? "/gestao.html#auth-client-fixture" : "/"), { waitUntil: "networkidle" });
-          const expected = baseline && !["access-denied", "expired-session", "standalone"].includes(kind) ? 3 : 1;
+          const expected = baseline && !["access-denied", "expired-session", "standalone"].includes(kind)
+            ? kind === "management-direct" ? 2 : 3 : 1;
           if (kind === "standalone") {
             await page.locator("#workspace:not([hidden])").waitFor();
             assert.match(await page.locator("#tenant").innerText(), /ORGANIZAÇÃO SOMENTE FIXTURE/);
@@ -166,7 +167,8 @@ async function waitForCall(fixture, predicate, description) {
             assert.equal(f.calls.some(call => call.path.endsWith("/pi_team_api")), false);
           } else {
             await waitHome(page); assert.equal(await sdkCount(page), expected);
-            assert.ok(f.calls.some(call => call.path.endsWith("/pi_team_api")), "Real home must execute the fallback Team API");
+            if (kind === "management-direct") assert.equal(f.calls.some(call => call.path.endsWith("/pi_team_api")), false, "Direct Gestão access must not enter the Team fallback");
+            else assert.ok(f.calls.some(call => call.path.endsWith("/pi_team_api")), "Real home must execute the fallback Team API");
             const refresh = await refreshSDK(page);
             if (kind === "refresh-rejected") {
               assert.equal(refresh.hasSession, false); assert.equal(refresh.code, "refresh_token_not_found");
@@ -182,9 +184,9 @@ async function waitForCall(fixture, predicate, description) {
               await page.evaluate(() => window.dispatchEvent(new Event("focus")));
               await page.waitForFunction(() => window.__authFixture.events.some(event => event.event === "TOKEN_REFRESHED"));
               await waitForCall(f, call => call.path.endsWith("/gestao-api/status") && call.phase === "refreshed", "Gestão must receive refreshed token");
-              await waitForCall(f, call => call.path.endsWith("/pi_team_api") && call.phase === "refreshed", "Team must receive refreshed token");
+              if (kind !== "management-direct") await waitForCall(f, call => call.path.endsWith("/pi_team_api") && call.phase === "refreshed", "Team must receive refreshed token");
               assert.ok(f.calls.some(call => call.path.endsWith("/gestao-api/status") && call.phase === "refreshed"));
-              assert.ok(f.calls.some(call => call.path.endsWith("/pi_team_api") && call.phase === "refreshed"));
+              if (kind !== "management-direct") assert.ok(f.calls.some(call => call.path.endsWith("/pi_team_api") && call.phase === "refreshed"));
               await page.locator("#logout").click(); await waitLogin(page);
               assert.equal(await page.locator("#openManagement").isVisible(), false);
               assert.equal(await page.evaluate(() => localStorage.getItem("pires-auth-v1")), null);
@@ -200,9 +202,12 @@ async function waitForCall(fixture, predicate, description) {
           }
           const duplicateWarnings = f.warnings.filter(message => message.includes("Multiple GoTrueClient instances"));
           assert.equal(duplicateWarnings.length, expected - 1, "Actual vendor warning count");
+          if (kind === "management-direct") assert.equal(f.calls.some(call => call.path.endsWith("/pi_team_api")), false, "Refresh/logout/relogin must retain direct Gestão access without Team fallback");
           assert.deepEqual(f.errors, []); assert.deepEqual(f.unexpected, []);
           await page.screenshot({ path: path.join(output, `${device}-${kind}.png`), fullPage: true });
           cases.push({ device, kind, pass: true, sdkClients: await sdkCount(page), duplicateWarnings: duplicateWarnings.length,
+            entryPath: kind === "management-direct" ? "Gestão direct; operations=true" : ["healthy", "refresh-rejected"].includes(kind) ? "forced Team fallback; operations=false" : kind,
+            teamApiCalls: f.calls.filter(call => call.path.endsWith("/pi_team_api")).length,
             refreshRequests: f.refreshCount(), syntheticHttpCalls: f.calls.length, pageErrors: 0, unexpectedExternalRequests: 0 });
         } catch (error) {
           await page.screenshot({ path: path.join(output, `${device}-${kind}-failure.png`), fullPage: true });
