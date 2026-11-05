@@ -4,6 +4,20 @@ Esta branch reúne a versão **Equipe v1**, incluindo Gestão de Ativos, Corpo t
 
 A verificação de 28/10/2026 comparou os 60 arquivos servidos publicamente e todos coincidiram por SHA-256. Os 60 arquivos de código/configuração não credencial desta cópia coincidem com o pacote, incluindo `_headers`. A única substituição no conjunto de 61 arquivos é `app/runtime-config.js`: a chave de publicação foi retirada. Veja [RELEASE.md](RELEASE.md) e [release/](release/).
 
+Esta branch de inspeção contém alterações ainda não publicadas sobre o commit `6093ff37b10dd2246501ed790c8b0ab498508457`. O manifesto e o recibo em `release/` continuam como evidência daquela base, sem serem reescritos para as alterações. O recorte, os testes e as dependências de catálogo/autorização estão em [INSPECAO-REVISAO.txt](INSPECAO-REVISAO.txt). O SQL de inspeção é um candidato de revisão, sem aplicação em produção.
+
+O recorte local mais recente de acesso por atribuição, anexos e catálogo explícito/versionado está em [INSPECAO-ATRIBUICAO-CATALOGO-20261103.md](INSPECAO-ATRIBUICAO-CATALOGO-20261103.md), com provas locais e dependências de programação, homologação e recuperação.
+
+As correções de 30/10 para isolamento dos relatórios por contrato, distinção entre progresso administrativo e emissão técnica e coerência da fila com o escopo vigente estão em [INSPECAO-CORRECOES-20261030.md](INSPECAO-CORRECOES-20261030.md). Continuam somente na versão em revisão.
+
+A revisão de 03/11 prepara a conferência offline do catálogo, registra o marco do prazo pela inspeção realizada e acrescenta um rascunho individual de conferência por TAG. Fontes, testes e limites estão em [INSPECAO-CATALOGO-TAG-20261103.md](INSPECAO-CATALOGO-TAG-20261103.md). Catálogo real e matriz permanecem sem ativação; o rascunho não é relatório técnico emitido nem reprodução do modelo final de tubulação.
+
+Os controles locais seguintes preparam composição explícita de checklist, referências versionadas de desenho e pacote de conferência, sem integração com o aplicativo. O estado de cada pendência e o plano específico de acesso, originais e revisão técnica estão em [INSPECAO-CONTROLES-REVISAO-20261103.md](INSPECAO-CONTROLES-REVISAO-20261103.md).
+
+O primeiro [protótipo local de desenho de linha](prototypes/line-drawing/README.md) é executado separadamente com `npm run start:drawing`. Malha, figuras e marcações são esquemáticas, sem escala física ou certificação; o desenho permanece levantamento pendente de revisão e não está integrado à Gestão.
+
+Os caminhos de boas condições com cobertura/fotos e de tratativa com RTI e referência de campo estão preparados na [revisão de resultados e RTI](INSPECAO-RESULTADOS-RTI-20261103.md). Esse documento distingue validação local, integração ainda pendente e o plano de migração/acesso/publicação; o SQL continua candidato não aplicado em produção.
+
 ## Executar e testar na nuvem
 
 Node.js 24 ou superior. Para os importadores Python e seu teste, Python 3.12 com as versões de `requirements-cloud.txt`.
@@ -13,14 +27,14 @@ npm ci --ignore-scripts
 python -m pip install -r requirements-cloud.txt
 npm run prepare
 npm run check
-npm run verify:release
+# verify:release confere a base publicada; nesta branch são esperadas diferenças.
 npm test
 HOST=0.0.0.0 PORT=3000 npm start
 ```
 
 O servidor começa sem credenciais no modo de demonstração. Ele serve os arquivos atuais da aplicação; não simula autenticação da equipe. As telas protegidas precisam da configuração conectada e de permissões reais.
 
-Para conectar, forneça **privadamente nas variáveis do ambiente** os campos vazios de `.env.example`, use `PIRES_MODE=connected` e execute o mesmo servidor. Ele gera a resposta de `runtime-config.js` em memória. Não grava nem imprime chaves. O frontend valida URL Supabase e URL da aplicação HTTPS; uma prévia conectada precisa de domínio HTTPS autorizado. Configure também os URLs de redirecionamento do Auth no ambiente de desenvolvimento. As Edge Functions preservam as restrições de origem/projeto publicadas: revisá-las para um novo ambiente é trabalho posterior, não realizado neste envio.
+Para conectar, forneça **privadamente nas variáveis do ambiente** os campos vazios de `.env.example`, use `PIRES_MODE=connected` e `PIRES_GESTAO_BACKEND=supabase` e execute o mesmo servidor. A segunda variável seleciona explicitamente o adaptador operacional da Gestão; não concede acesso a pessoas. O servidor gera a resposta de `runtime-config.js` em memória. Não grava nem imprime chaves. O frontend valida URL Supabase e URL da aplicação HTTPS; uma prévia conectada precisa de domínio HTTPS autorizado. Configure também os URLs de redirecionamento do Auth no ambiente de desenvolvimento. As Edge Functions preservam as restrições de origem/projeto publicadas: revisá-las para um novo ambiente é trabalho posterior, não realizado neste envio.
 
 Para testar somente equipe: `npm run test:team`. Os testes normais utilizam fixtures sintéticas e bancos locais PGlite; não utilizam as 22 contas de produção. Três testes de importações históricas dependem de documentos privados de cliente e ficam explicitamente ignorados sem `PIRES_PRIVATE_FIXTURES=1` e sem os originais autorizados.
 

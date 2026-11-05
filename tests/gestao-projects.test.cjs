@@ -31,7 +31,7 @@ test('projects: planning, independent events, immutable snapshot, persistence an
  const today=M.today(),tasks=['execution','review','issuance','acceptance'].map(stage=>({id:randomUUID(),name:stage,targetId:b.asset.id,targetKind:'asset',stage,modality:'visual',plannedDate:today,weight:1}));
  const plan=await b.project('plan',{expectedVersion:state.contract[0].version,tasks,basis:'Base isolada aprovada'});assert.equal(plan.planVersion,1);
  const eventInput={taskId:tasks[0].id,status:'done',on:today,responsible:'Fixture',evidenceDocumentId:doc.id,evidence:'Execução fixture'};await b.project('event',eventInput);
- const before=await b.call('state.get',{ownerId:b.ownerId}),model=M.build(before,b.c.id,b.module);assert.deepEqual(model.lifecycle.map(x=>x.done),[1,0,0,0]);assert.equal(model.series.at(-1).actual,100);
+ const before=await b.call('state.get',{ownerId:b.ownerId}),model=M.build(before,b.c.id,b.module);assert.deepEqual(model.lifecycle.map(x=>x.done),[1,0,null,0]);assert.equal(model.lifecycle[2].administrativeDone,0);assert.equal(model.lifecycle[2].technicalAvailable,false);assert.equal(model.series.at(-1).actual,100);
  const snapshot=await b.project('snapshot',{cutoff:today,modality:'visual'});assert.equal(snapshot.state.projectEvent.length,1);assert.equal(snapshot.stateHash.length,64);
  await b.project('event',{...eventInput,taskId:tasks[1].id,status:'submitted'});const frozen=await b.project('snapshot_get',{id:snapshot.id});assert.equal(frozen.state.projectEvent.length,1);
  const fresh=await b.call('state.get',{ownerId:b.ownerId});assert.ok(fresh.document.every(x=>x.recordClass!=='projectSnapshot'&&x.recordClass!=='projectPreview'));assert.equal(fresh.projectSnapshot[0].state,undefined);

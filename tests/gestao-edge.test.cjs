@@ -19,6 +19,30 @@ const workbook = {
     { row: 1, values: ["Empresa fixture"] }, { row: 2, values: ["TAG-FIXTURE", null] },
   ] }],
 };
+
+test('execution Edge: exact owner routes and stable operation payload use user JWT without privileged client',async()=>{
+ const h=await setup({grant:{inspectionScopeVersion:1,inspectorWorkspaceVersion:1}});
+ for(const [route,action,payload] of [[`companies/${OWNER}/execution`,'execution.list',{ownerId:OWNER}],[`companies/${OWNER}/execution/${ASSET}`,'execution.get',{ownerId:OWNER,inspectionId:ASSET}]]){
+  const result=await h.send(route);assert.equal(result.status,200);
+  assert.deepEqual(h.events.findLast(e=>e.args?.p_action===action).args.p_payload,payload);
+ }
+ for(const verb of ['assign','start','save','submit']){
+  const payload={ownerId:OTHER,inspectionId:ASSET,requestId:OTHER,expectedVersion:3};
+  const result=await h.send(`companies/${OWNER}/execution-${verb}`,{body:payload});assert.equal(result.status,200);
+  assert.deepEqual(h.events.findLast(e=>e.args?.p_action==='execution.'+verb).args.p_payload,{...payload,ownerId:OWNER});
+ }
+ assert.equal(h.serviceCount(),0);
+ const readonly=await setup({grant:{write:false,role:'inspector'}});
+ assert.equal((await readonly.send(`companies/${OWNER}/execution`)).status,503);
+ assert.equal((await readonly.send(`companies/${OWNER}/execution-start`,{body:{inspectionId:ASSET,requestId:OTHER}})).status,503);
+ assert.equal(readonly.events.some(e=>e.args?.p_action==='execution.start'),false);
+ const scopedReadonly=await setup({grant:{write:false,role:'inspector',inspectionScopeVersion:1,inspectorWorkspaceVersion:1,inspectionWriteAllowed:false}});
+ assert.equal((await scopedReadonly.send(`companies/${OWNER}/execution`)).status,200);
+ assert.equal((await scopedReadonly.send(`companies/${OWNER}/execution-start`,{body:{inspectionId:ASSET,requestId:OTHER}})).status,403);
+ assert.equal(scopedReadonly.events.some(e=>e.args?.p_action==='execution.start'),false);
+ const denied=await setup({grant:{inspectionScopeVersion:1,inspectorWorkspaceVersion:1},rpc:async()=>({error:{code:'42501'}})});
+ assert.equal((await denied.send(`companies/${OWNER}/execution/${ASSET}`)).status,403);
+});
 async function setup(options = {}) {
   const { createGestaoHandler } = await import("../supabase/functions/_shared/gestao-api-core.mjs");
   const events = [], files = new Map();
@@ -205,7 +229,7 @@ test("status sem tenant também exige par piloto SQL e tenants expõe somente pa
   });
   const status = await h.send("status");
   assert.equal(status.status, 200);
-  assert.deepEqual(status.data.capabilities, { workflowVersion: 2, xlsx: true, pdf: false, xls: false, operations: true, documentOriginals: true, photoOriginals: true, xlsxMaxBytes: 8 * 1024 * 1024, documentMaxBytes: 32 * 1024 * 1024, photoMaxBytes: 8 * 1024 * 1024, write: false });
+  assert.deepEqual(status.data.capabilities, { workflowVersion: 2, inspectionExecutionVersion: 0, inspectorWorkspaceVersion: 0, inspectionTimelineVersion: 0, rtiDeadlineDecisionVersion: 0, treatmentGuidanceVersion: 0, assignedExecutionWrite: false, xlsx: true, pdf: false, xls: false, operations: true, documentOriginals: true, photoOriginals: true, xlsxMaxBytes: 8 * 1024 * 1024, documentMaxBytes: 32 * 1024 * 1024, photoMaxBytes: 8 * 1024 * 1024, write: false });
   assert.equal(status.data.pilot, true);
   assert.equal(status.data.user_id, USER);
   assert.deepEqual(h.events.filter(e => e.kind === "userRpc").map(e => [e.name, e.args?.p_tenant]), [
@@ -327,6 +351,40 @@ test("relatório usa escopo canônico do caminho, exige piloto e preserva rascun
   assert.equal(denied.events.some(e => e.args?.p_action === "reports.system"), false);
   const crossOwner = await setup({ rpc: async () => ({ data: null, error: { code: "P0001", message: "private-system-outside-owner" } }) });
   assert.equal((await crossOwner.send(`companies/${OWNER}/reports/system/${ASSET}`)).status, 400);
+  assert.equal(h.serviceCount(), 0);
+});
+
+test("relatório contratual usa somente IDs canônicos do caminho e não aceita corpo, query ou caminho inválido", async () => {
+  const contractId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", targetId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const snapshot = { company: { id: OWNER }, contract: { id: contractId, name: "Projeto isolado" }, system: { id: targetId }, draft: true, canIssue: false };
+  const h = await setup({ grant: { inspectionScopeVersion: 1, inspectorWorkspaceVersion: 1 }, rpc: async (_name, args) => {
+    assert.equal(args.p_action, "reports.system");
+    return { data: snapshot, error: null };
+  } });
+  for (const target of ["system", "campaign"]) {
+    const route = `companies/${OWNER}/reports/contracts/${contractId.toUpperCase()}/${target}/${targetId.toUpperCase()}`;
+    assert.deepEqual((await h.send(route)).data, snapshot);
+    assert.deepEqual(h.events.findLast(e => e.args?.p_action === "reports.system").args, {
+      p_tenant: TENANT, p_action: "reports.system", p_payload: { ownerId: OWNER, contractId, [target === "system" ? "systemId" : "campaignId"]: targetId },
+    });
+    assert.equal((await h.send(route, { body: { contractId: OTHER, ownerId: OTHER, systemId: OTHER, campaignId: OTHER } })).status, 405);
+    assert.equal((await h.send(route + `?contractId=${OTHER}`)).status, 400);
+    assert.equal((await h.send(route + `?ownerId=${OTHER}`)).status, 400);
+  }
+  const calls = h.events.filter(e => e.args?.p_action === "reports.system").length;
+  for (const suffix of [
+    `not-a-uuid/system/${targetId}`, `${contractId}/system/not-a-uuid`, `${contractId}/assets/${targetId}`,
+    `${contractId}/system/${targetId}/extra`, `${contractId}/campaign`, `${contractId}/system/${targetId}/`,
+  ]) assert.equal((await h.send(`companies/${OWNER}/reports/contracts/${suffix}`)).status, 400);
+  assert.equal(h.events.filter(e => e.args?.p_action === "reports.system").length, calls);
+  const denied = await setup({ grant: { pilot: false } });
+  assert.equal((await denied.send(`companies/${OWNER}/reports/contracts/${contractId}/system/${targetId}`)).status, 403);
+  assert.equal(denied.events.some(e => e.args?.p_action === "reports.system"), false);
+  const foreignScope = await setup({ grant: { inspectionScopeVersion: 1, inspectorWorkspaceVersion: 1 }, rpc: async (_name, args) => {
+    assert.deepEqual(args.p_payload, { ownerId: OWNER, contractId, campaignId: targetId });
+    return { error: { code: "42501" } };
+  } });
+  assert.equal((await foreignScope.send(`companies/${OWNER}/reports/contracts/${contractId}/campaign/${targetId}`)).status, 403);
   assert.equal(h.serviceCount(), 0);
 });
 

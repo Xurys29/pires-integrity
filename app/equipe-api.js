@@ -1,7 +1,7 @@
 (function(root,factory){const api=factory(root);if(typeof module==='object'&&module.exports)module.exports=api;else root.PiresTeamAPI=api;})(typeof globalThis!=='undefined'?globalThis:this,function(root){
  'use strict';
  function create(config,deps={}){
-  let client;const cloud=(deps.cloud||root.PiresCloud).create(config,(...args)=>{client=(deps.factory||root.PiresSupabase.createClient)(...args);return client;});
+  const cloudApi=deps.cloud||root.PiresCloud,factory=deps.factory||root.PiresSupabase.createClient,cloud=cloudApi.create(config,factory),client=cloudApi.getClient(config,factory);
   let tenant=null,generation=0;
   function setTenant(id){if(id!==tenant)generation++;tenant=id;}
   function failure(error){const messages={42501:'Acesso negado para esta pessoa, organização ou informação restrita.',40001:'Esta ficha mudou. Atualize antes de salvar novamente.',23505:'Já existe um registro com esta identificação ou vigência.',23514:'Confira os campos e o escopo informado.',22023:'Confira os dados, o comprovante e a justificativa de conferência.'};const e=new Error(messages[error?.code]||'Não foi possível confirmar a operação. Atualize a tela antes de repetir.');e.code=error?.code;throw e;}

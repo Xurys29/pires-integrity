@@ -41,14 +41,32 @@
     if (new TextEncoder().encode(JSON.stringify(clean)).length > 450000 || new TextEncoder().encode(reportText || '').length > 200000) throw new CloudError('Avaliação excede o limite de armazenamento desta versão.');
     return { title, kind: clean.type, payload: clean, report_text: String(reportText || ''), app_version: String(clean.version || '') };
   }
-  function create(config, factory) {
+  // Account, Gestão and Equipe share one auth client in this page. Keep their
+  // access/tenant state in separate facades; sharing auth never grants access.
+  const clientsByFactory = new WeakMap();
+  function getClient(config, factory) {
     const settings = validateConfig(config);
-    if (settings.mode === 'demo') return { configured: false, config: settings };
+    if (settings.mode === 'demo') return null;
     if (typeof Access?.evaluate !== 'function') throw new CloudError('Controle de acesso indisponível. Tente novamente mais tarde.', 'access_unavailable');
     if (typeof factory !== 'function') throw new CloudError('Serviço de autenticação indisponível.');
+    const key = JSON.stringify([settings.supabaseUrl, settings.publishableKey]);
+    const clients = clientsByFactory.get(factory);
+    if (clients?.has(key)) return clients.get(key);
     const client = factory(settings.supabaseUrl, settings.publishableKey, {
       auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, flowType: 'pkce', storageKey: 'pires-auth-v1' }
     });
+    // Failed construction must remain retryable. No sessions/tokens are copied.
+    if (client && (typeof client === 'object' || typeof client === 'function')) {
+      const cache = clients || new Map();
+      cache.set(key, client);
+      if (!clients) clientsByFactory.set(factory, cache);
+    }
+    return client;
+  }
+  function create(config, factory) {
+    const settings = validateConfig(config);
+    if (settings.mode === 'demo') return { configured: false, config: settings };
+    const client = getClient(settings, factory);
     let selectedCompany = null, selectedUser = null;
     function failure(error, fallback) {
       if (!error) return;
@@ -337,5 +355,5 @@
       }
     };
   }
-  return { CloudError, emailLink, validateConfig, payload, create };
+  return { CloudError, emailLink, validateConfig, payload, getClient, create };
 });

@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'none'; img-src 'self' data: blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Desenho de linha · protótipo local</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="model.js" defer></script>
+  <script src="editor.js" defer></script>
+</head>
+<body>
+  <header class="masthead">
+    <div class="brand"><span class="brand-mark" aria-hidden="true">⌁</span><div><span class="eyebrow">OFICINA DE CAMPO · LOCAL</span><h1>Desenho de linha</h1></div></div>
+    <div class="document-state"><span id="dirtyIndicator" class="status-chip pending">Em branco · não salvo</span><button id="helpButton" class="quiet" type="button">Ajuda</button></div>
+  </header>
+  <div class="prototype-banner"><strong>Protótipo local</strong><span>Levantamento para revisão · sem escala</span><span>Não certificado nem as-built aprovado.</span></div>
+  <main class="editor-layout">
+    <aside class="sidebar" aria-label="Ferramentas e arquivos">
+      <section class="tools-section"><h2>Desenhar</h2><div class="tool-grid">
+        <button type="button" data-tool="line" class="tool active" aria-pressed="true"><span aria-hidden="true">╱</span>Linha <kbd>L</kbd></button>
+        <button type="button" data-tool="select" class="tool" aria-pressed="false"><span aria-hidden="true">↖</span>Selecionar <kbd>V</kbd></button>
+        <button type="button" data-tool="symbol" class="tool" aria-pressed="false"><span aria-hidden="true">⋈</span>Símbolo</button>
+        <button type="button" data-tool="point" class="tool" aria-pressed="false"><span aria-hidden="true">⊙</span>Ponto <kbd>P</kbd></button>
+      </div><label class="symbol-picker" for="symbolKind">Figura esquemática<select id="symbolKind"><option value="valve">Válvula</option><option value="flange">Flange</option><option value="reducer">Redução</option><option value="tee">Derivação T</option></select></label><p class="small">Biblioteca interna, sem padronização ou certificação. As figuras não comprovam conexões reais.</p></section>
+      <section class="edit-actions" aria-label="Editar desenho"><button id="undoButton" type="button" class="quiet" disabled>↶ Desfazer</button><button id="redoButton" type="button" class="quiet" disabled>↷ Refazer</button><button id="deleteButton" type="button" class="quiet danger" disabled>Apagar seleção</button></section>
+      <details id="scopeDetails" class="scope-details"><summary><span>Escopo declarado</span><small id="scopeCaption">Defina antes de salvar</small></summary><form id="scopeForm">
+        <p class="small">Estes IDs são declarações locais. Nenhum cadastro, conta ou autorização é consultado.</p>
+        <label>TAG declarada<input name="tagLabel" id="tagLabel" maxlength="160" autocomplete="off" placeholder="Identificação definida por você" required></label>
+        <button id="generateIds" type="button" class="quiet">Gerar IDs declarados locais</button>
+        <details class="identity-fields"><summary>Conferir IDs locais</summary><label>Cliente · ID declarado<input name="ownerId" autocomplete="off" required></label><label>Contrato · ID declarado<input name="contractId" autocomplete="off" required></label><label>Sistema · ID declarado<input name="systemId" autocomplete="off" required></label><label>Ativo · ID declarado<input name="assetId" autocomplete="off" required></label><label>Linha · ID declarado<input name="lineId" autocomplete="off" required></label></details>
+        <button type="submit" id="applyScope">Definir escopo local</button>
+      </form></details>
+      <section class="file-section"><h2>Guardar o trabalho</h2><button id="saveButton" type="button" class="primary">Salvar rascunho</button><button id="resumeButton" type="button" class="quiet">Retomar</button><div class="file-grid"><button id="importButton" type="button" class="quiet">Importar JSON</button><button id="exportJsonButton" type="button" class="quiet">Exportar JSON</button><button id="exportSvgButton" type="button" class="quiet">Exportar SVG</button><button id="newButton" type="button" class="quiet">Novo desenho</button></div><input id="importFile" type="file" accept="application/json,.json" hidden><p class="small">Salvo somente neste navegador. Exporte JSON para manter uma cópia fora dele.</p></section>
+      <button id="exampleButton" type="button" class="example-button">Abrir exemplo sintético</button>
+    </aside>
+    <section class="drawing-area" aria-label="Área do desenho">
+      <div class="canvas-toolbar"><div class="zoom-controls"><button id="zoomOut" type="button" aria-label="Reduzir zoom">−</button><output id="zoomLabel">60%</output><button id="zoomIn" type="button" aria-label="Aumentar zoom">+</button><button id="fitButton" type="button" class="quiet">Ajustar à tela</button></div><span class="grid-note">Malha gráfica · sem unidade</span></div>
+      <div id="historyNotice" class="history-notice" hidden><span id="historyNoticeText"></span><button id="leaveHistory" type="button">Voltar ao rascunho</button><button id="branchHistory" type="button">Retomar como novo rascunho</button></div>
+      <p id="toolHint" class="tool-hint">Toque em dois pontos da malha para desenhar uma linha.</p>
+      <div id="canvasViewport" class="canvas-viewport" tabindex="0" aria-label="Desenho com zoom e rolagem"><svg id="drawingCanvas" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Malha isométrica do levantamento local"></svg></div>
+      <div class="canvas-footer"><span id="counts">0 trechos · 0 símbolos · 0 pontos</span><span id="feedback" role="status" aria-live="polite">Comece em branco ou abra o exemplo sintético.</span></div>
+    </section>
+    <aside class="inspector" aria-label="Seleção e histórico">
+      <section id="selectionPanel"><span class="eyebrow">NO DESENHO</span><h2>Seleção</h2><p id="selectionHint" class="small">Use Selecionar para mover nós, trechos, figuras ou pontos. Os vínculos acompanham suas ancoragens.</p><div id="selectionInfo"></div></section>
+      <section id="pointPanel" hidden><h2 id="pointPanelTitle">Novo ponto</h2><form id="pointForm"><label>Rótulo confirmado por você<input id="pointLabel" maxlength="160" autocomplete="off" required placeholder="Sem numeração presumida"></label><label class="checkbox-label"><input id="pointLinkScope" type="checkbox"> Vincular à TAG e ao escopo declarados</label><label>Item LVT · ID opcional<input id="pointItemId" autocomplete="off" placeholder="UUID declarado, se conhecido"></label><p class="small">Vínculos de TAG, item, fotos ou RTIs são declarações não validadas no cadastro. Um ponto gráfico não determina procedimento ou posição de medição.</p><button type="submit">Aplicar ponto</button><button id="cancelPoint" type="button" class="quiet">Cancelar</button></form></section>
+      <section class="history-section"><div class="section-heading"><h2>Histórico local</h2><span id="historyCount">0</span></div><p class="small">Estados salvos são preservados. Visualização do histórico é somente leitura.</p><div id="historyList" class="history-list"><p class="empty">Nenhum estado salvo.</p></div></section>
+    </aside>
+  </main>
+  <dialog id="resumeDialog"><form method="dialog"><div class="dialog-heading"><h2>Retomar neste navegador</h2><button value="cancel" class="quiet" aria-label="Fechar">×</button></div></form><p class="small">Somente rascunhos deste protótipo. Para outro escopo, comece um Novo desenho antes de retomar.</p><div id="resumeList"></div></dialog>
+  <dialog id="confirmDialog"><h2 id="confirmTitle">Confirmar alteração</h2><p id="confirmText"></p><div class="dialog-actions"><button id="confirmCancel" type="button" class="quiet">Cancelar</button><button id="confirmAccept" type="button">Continuar</button></div></dialog>
+  <dialog id="helpDialog"><form method="dialog"><div class="dialog-heading"><h2>Um levantamento para revisar</h2><button value="close" class="quiet" aria-label="Fechar ajuda">×</button></div></form><p>Desenhe com referências da malha, sem dimensão física ou escala. Em Selecionar, arraste os nós ou trechos; figuras e pontos permanecem vinculados às ancoragens.</p><p>Os rótulos dos pontos devem ser definidos por você. Eles não representam posições angulares ou um procedimento de inspeção.</p><p>Escopos e vínculos são declarações locais, sem autenticação ou conferência em cadastro. O protótipo não faz requisições à aplicação ou à produção.</p><p>O histórico conserva versões internas do rascunho e da biblioteca de símbolos. Digest é conferência de conteúdo, não assinatura ou revisão técnica.</p><p>A aparência azul e a malha são uma interpretação da descrição autorizada. Os pixels da imagem de referência não foram inspecionados; esta interface não alega reprodução da fotografia.</p></dialog>
+</body>
+</html>

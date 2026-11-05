@@ -9,6 +9,7 @@
   "scripts": {
     "start": "node scripts/serve-current.cjs",
     "start:site": "node scripts/serve.cjs site",
+    "start:drawing": "node scripts/serve-line-drawing.cjs",
     "test": "node --test --test-concurrency=2 tests/*.test.cjs",
     "check": "node scripts/check.cjs",
     "start:assets": "node scripts/serve-assets.cjs",

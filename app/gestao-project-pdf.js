@@ -14,7 +14,7 @@
   text('Modalidade: '+model.modality+' | Gerado em: '+new Date(snapshot.createdAt).toLocaleString('pt-BR',{timeZone:'America/Sao_Paulo'}));
   text('Resumo dos registros do projeto. Situação operacional e conformidade técnica permanecem independentes. Dados ausentes são indicados como pendentes.',9);
   title('Indicadores');
-  for(const k of model.kpis){text(k.label+': '+(k.value===null?'A apurar':k.value+' '+k.unit)+(k.percent===null?'':` (${k.percent}% de ${k.denominator})`),12,true);text(k.definition,9);}
+  for(const k of model.kpis){text(k.label+': '+(k.value===null?k.technicalAvailable===false?'Emissão técnica indisponível':'A apurar':k.value+' '+k.unit)+(k.percent===null?'':` (${k.percent}% de ${k.denominator})`),12,true);text(k.definition,9);if(k.technicalAvailable===false)text(`Tarefas concluídas administrativamente: ${k.administrativeCompleted}. Não comprovam emissão técnica.`,9);}
   title('Avanço por sistema');
   if(!model.systems.length)text('Escopo ainda não confirmado.');
   for(const s of model.systems)text(`${s.name}: ${s.assets.length} ativos. ${s.planned?s.done+' / '+s.planned+' '+s.unit+' concluídos':'Execução a planejar.'}`);
@@ -25,7 +25,7 @@
    for(const[key,color]of[['planned',[179,130,0]],['actual',[0,74,102]]]){pdf.setDrawColor(...color);pdf.setFillColor(...color);pdf.setLineWidth(.7);const series=model.series.filter(x=>x[key]!==null);for(let j=0;j<series.length;j++){const b=series[j],bx=22+(Date.parse(b.date)-first)/range*w,by=top+h-b[key]/100*h;pdf.circle(bx,by,1,'F');if(j){const a=series[j-1];pdf.line(22+(Date.parse(a.date)-first)/range*w,top+h-a[key]/100*h,bx,by);}}}y+=56;text('Dourado: planejado | Azul: realizado | Serviços da mesma modalidade, pesos iguais.',9);
   }else text('Planejamento sem série completa de datas. Curva não calculada.');
   text(model.forecast?`Previsão estimada: ${model.forecast.date}. ${model.forecast.method}`:'Previsão de conclusão: a definir.');
-  title('Entregas independentes');for(const l of model.lifecycle)text(l.label+': '+(l.total?l.done+' / '+l.total+' entregas concluídas':'base a definir'));
+  title('Andamento do planejamento');for(const l of model.lifecycle)text(l.label+': '+(l.technicalAvailable===false?'Indisponível. Tarefas concluídas administrativamente: '+l.administrativeDone:l.total?l.done+' / '+l.total+' entregas administrativas concluídas':'base a definir'));
   title('Ações e decisões');if(!model.priorities.length)text('Nenhuma ação priorizada pelos registros deste escopo; não equivale a aprovação técnica.');
   for(const p of model.priorities){text(p.title,11,true);text(`Responsável: ${p.responsible||'a confirmar'} | Prazo: ${p.due||'a confirmar'}`,9);}
   if(model.photos.length){title('Evidências dos itens');for(const p of model.photos.slice(0,6)){next(95);text(p.caption||'Foto do item '+p.item?.itemKey,11,true);const img=images.get(p.id);if(img){try{const props=pdf.getImageProperties(img),height=Math.min(72,174*props.height/props.width),width=height*props.width/props.height;next(height+16);pdf.addImage(img,props.fileType,18,y,width,height);y+=height+4;}catch{text('Foto indisponível para este resumo; consultar item de origem.',9);}}else text('Foto pendente de carregamento; consultar item de origem.',9);text('Item: '+(p.item?.itemKey||p.lvtItemId)+' | Ativo: '+(model.assets.find(a=>a.id===p.item?.assetId)?.tag||'a confirmar'),9);}}

@@ -105,6 +105,26 @@ test("empresa de acesso é separada da dona dos ativos e necessária antes de co
   assert.equal(requests.length, 2);
 });
 
+test("execução usa rotas próprias com JWT/tenant e preserva leitura versus gravação", async () => {
+  const { adapter, requests } = setup();
+  adapter.setTenant(tenantA);
+  const base = "companies/" + ownerCompany + "/execution";
+  await adapter.request(base);
+  await adapter.request(base + "/" + userId);
+  for (const action of ["assign", "start", "save", "submit"])
+    await adapter.request(base + "-" + action, { inspectionId: userId });
+  assert.deepEqual(requests.map(r => r.method), ["GET", "GET", "POST", "POST", "POST", "POST"]);
+  for (const request of requests) {
+    const headers = new Headers(request.headers);
+    assert.equal(headers.get("X-Pires-Tenant"), tenantA);
+    assert.equal(headers.get("Authorization"), "Bearer fixture-user-jwt");
+    assert.ok(request.url.includes("/companies/" + ownerCompany + "/execution"));
+  }
+  await assert.rejects(adapter.request(base + "-start"), error => error.code === "unsupported_operation");
+  await assert.rejects(adapter.request(base + "-unknown", {}), error => error.code === "unsupported_operation");
+  assert.equal(requests.length, 6);
+});
+
 test("login reutiliza auth existente e logout remove a empresa de acesso", async () => {
   const { adapter, authCalls, requests } = setup({ token: null });
   await assert.rejects(adapter.request("status"), error => error.status === 401 && error.code === "auth_required");
@@ -199,6 +219,32 @@ test("relatório por sistema ou campanha usa somente leitura canônica e mantém
     assert.equal(new Headers(requests.at(-1).headers).get("X-Pires-Tenant"), tenantA);
   }
   await assert.rejects(adapter.request(`companies/${ownerCompany}/reports/system/${userId}`, { issue: true }), error => error.code === "unsupported_operation");
+  assert.equal(requests.length, 2);
+});
+
+test("relatório do projeto conserva contrato no caminho e rejeita overrides e caminhos fora da allowlist", async () => {
+  const snapshot = { contract: { id: tenantB, name: "Contrato fixture" }, draft: true, canIssue: false };
+  const { adapter, requests } = setup({ respond: () => Response.json(snapshot) });
+  adapter.setTenant(tenantA);
+  for (const target of [`system/${userId}`, `campaign/${userId}`]) {
+    const route = `companies/${ownerCompany}/reports/contracts/${tenantB}/${target}`;
+    assert.deepEqual(await adapter.request(route), snapshot);
+    assert.ok(requests.at(-1).url.endsWith("/" + route));
+    assert.equal(requests.at(-1).method, "GET");
+    assert.equal(requests.at(-1).body, undefined);
+    assert.equal(new Headers(requests.at(-1).headers).get("X-Pires-Tenant"), tenantA);
+    await assert.rejects(adapter.request(route, { contractId: tenantA, ownerId: userId, systemId: tenantA }), error => error.code === "unsupported_operation");
+  }
+  for (const route of [
+    `companies/${ownerCompany}/reports/contracts/${tenantB}/system/${userId}?contractId=${tenantA}`,
+    `companies/${ownerCompany}/reports/contracts/${tenantB}/campaign/${userId}?ownerId=${tenantB}`,
+    `companies/${ownerCompany}/reports/contracts/not-a-uuid/system/${userId}`,
+    `companies/${ownerCompany}/reports/contracts/${tenantB}/system/not-a-uuid`,
+    `companies/${ownerCompany}/reports/contracts/${"-".repeat(36)}/system/${userId}`,
+    `companies/${ownerCompany}/reports/contracts/${tenantB}/system/${"-".repeat(36)}`,
+    `companies/${ownerCompany}/reports/contracts/${tenantB}/assets/${userId}`,
+    `companies/${ownerCompany}/reports/contracts/${tenantB}/system/${userId}/extra`,
+  ]) await assert.rejects(adapter.request(route), error => error.code === "unsupported_operation");
   assert.equal(requests.length, 2);
 });
 

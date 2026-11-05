@@ -6,12 +6,12 @@
   "use strict";
   const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
   const modules = Object.freeze({
-    integridade: { name: "Inspeção de Integridade", description: "Sistemas, TAGs, itens da LVT, fotos e recomendações documentadas.", views: [["sistemas", "Sistemas e TAGs"], ["contratos", "Contratos e escopos"], ["ativos", "Linhas e ativos"], ["campanhas", "Campanhas de inspeção"], ["lvt", "LVT e relatório visual"], ["espessura", "Medição de espessura"], ["achados", "Achados e RTIs"], ["relatorios", "Relatórios de integridade"]] },
+    integridade: { name: "Inspeção de Integridade", description: "Sistemas, TAGs, itens da LVT, fotos e recomendações documentadas.", views: [["sistemas", "Sistemas e TAGs"], ["minhas", "Minhas inspeções"], ["contratos", "Contratos e escopos"], ["ativos", "Linhas e ativos"], ["campanhas", "Campanhas de inspeção"], ["lvt", "LVT e relatório visual"], ["espessura", "Medição de espessura"], ["achados", "Achados e RTIs"], ["relatorios", "Relatórios de integridade"]] },
     rtis: { name: "Gestão de RTI", description: "Uma mesma RTI acompanha o achado de origem, o prazo e as ações.", views: [["contratos", "Contratos e escopos"], ["campanhas", "Campanhas de RTI"], ["fila", "RTIs abertas e histórico"], ["detalhe", "Estrutura da RTI"], ["acoes", "Ações e reinspeção"], ["relatorios", "Relatório de RTI"]] },
     nr13: { name: "Gestão NR-13", description: "Enquadramento automático com dados documentados, prazos e book do ativo.", views: [["contratos", "Contratos e escopos"], ["ativos", "Ativos e enquadramento"], ["book", "Book NR-13"], ["inspecoes", "Inspeções e próximos prazos"], ["documentos", "Documentação NR-13"], ["relacoes", "Relações entre ativos e documentos"]] },
     valvulas: { name: "Gestão de Certificação de Válvulas", description: "Cadastro próprio de válvulas e PSVs, campanhas e certificados.", views: [["contratos", "Contratos e escopos"], ["ativos", "Válvulas e PSVs"], ["campanhas", "Campanhas de certificação"], ["certificados", "Certificados e revisões"], ["historico", "Histórico da válvula"]] },
   });
-  const views = new Set(["inicio", "painel", "importar", "planejamento", "sistemas", "item", "contratos", "escopo", "ativos", "campanhas", "lvt", "espessura", "achados", "relatorios", "fila", "detalhe", "acoes", "book", "inspecoes", "documentos", "relacoes", "certificados", "historico", "registros"]);
+  const views = new Set(["inicio", "painel", "importar", "planejamento", "sistemas", "minhas", "execucao", "item", "contratos", "escopo", "ativos", "campanhas", "lvt", "espessura", "achados", "relatorios", "fila", "detalhe", "acoes", "book", "inspecoes", "documentos", "relacoes", "certificados", "historico", "registros"]);
   function routeHash(clientId, module = "", view = "inicio", itemId = "_", contractId = "") {
     return "#gestao/" + [clientId || "_", module || "modulos", view, itemId || "_"].map(encodeURIComponent).join("/") + (contractId ? "?contrato=" + encodeURIComponent(contractId) : "");
   }
@@ -22,7 +22,7 @@
       const [, clientId, module, view, itemId] = parts, contractId = new URLSearchParams(query).get("contrato") || "";
       if (clientId !== "_" && !UUID.test(clientId) || itemId !== "_" && !UUID.test(itemId) || contractId && !UUID.test(contractId)) return null;
       if (module !== "modulos" && !Object.hasOwn(modules, module) || !views.has(view)) return null;
-      if (module === "modulos" ? view !== "inicio" : !["inicio", "painel", "importar", "planejamento", "book", "registros", "escopo", "historico"].includes(view) && !(module === "integridade" && view === "item") && !modules[module].views.some(([key]) => key === view)) return null;
+      if (module === "modulos" ? view !== "inicio" : !["inicio", "painel", "importar", "planejamento", "book", "registros", "escopo", "historico"].includes(view) && !(module === "integridade" && ["item", "execucao"].includes(view)) && !modules[module].views.some(([key]) => key === view)) return null;
       return { clientId, module: module === "modulos" ? "" : module, view, itemId, contractId };
     } catch { return null; }
   }
@@ -48,6 +48,7 @@
       breadcrumb = options.breadcrumb, back = options.back, legacy = options.legacy;
     let contextKey = "", current = null, previousRoute = "";
     const projects = root.PiresGestaoProjects?.create({...options, onProjectNavigate: navigate});
+    const inspections = root.PiresGestaoInspection?.create({...options, onInspectionNavigate: navigate});
     const el = (tag, text, className) => {
       const node = document.createElement(tag);
       if (text !== undefined) node.textContent = text;
@@ -58,7 +59,8 @@
     const data = () => context().state || {};
     const records = (kind) => data()[kind] || data()[{ finding: "findings", relation: "relations" }[kind]] || [];
     const assets = () => data().asset || [];
-    const contracts = (module) => (data().contract || []).filter((contract) => !commercialReference(contract) && contract.modules?.includes(module));
+    const contracts = (module) => (data().contract || []).filter((contract) => !commercialReference(contract) && (contract.modules?.includes(module) ||
+      module === "rtis" && ["fila","detalhe","acoes","relatorios"].includes(current?.view) && (data().rti || []).some(rti => rti.contractId === contract.id && (contract.assetIds || []).includes(rti.assetId) && assets().some(asset => asset.id === rti.assetId))));
     const commercialReferences = () => (data().contract || []).filter(commercialReference);
     const notice = (parent, text) => parent.append(el("p", text, "notice"));
     const operational = () => context().mode === "connected" && context().capabilities?.operations === true;
@@ -79,6 +81,7 @@
     function sourceSituation(parent, rti) {
       const summary = root.PiresAssetCards?.describeRti(rti);
       fields(parent, [["Situação literal da fonte", summary?.sourceStatus || rti?.sourceStatus || rti?.status], ["Data da situação na fonte", rti?.sourceDate], ["Motivo da ausência de data", rti?.sourceDateMissingReason], ["Atualidade", summary?.currentnessLabel || "Atualidade desconhecida — sem confirmação da situação atual"], ["Evidência de abertura no original", rti?.openingEvidence]]);
+      if (summary?.followupOpen) notice(parent, "Tratativa de campo aberta para acompanhamento. A data da inspeção é o marco; registrar depois não muda essa data nem confirma a condição física de hoje.");
     }
     function link(parent, label, module, view, itemId = "_", contractId = current?.contractId || "") {
       const button = el("button", label);
@@ -134,7 +137,7 @@
     function showModules() {
       const ctx = context();
       if (!ctx.client && options.onSelectClient) {
-        heading("SEU ESPAÇO DE GESTÃO", "Qual cliente vamos acompanhar?", "Escolha a empresa para acessar seus módulos, sistemas e ativos.");
+        heading(ctx.assignedInspector ? "MINHA PROGRAMAÇÃO" : "SEU ESPAÇO DE GESTÃO", ctx.assignedInspector ? "Em qual cliente estão suas inspeções?" : "Qual cliente vamos acompanhar?", ctx.assignedInspector ? "Somente clientes com atividades atribuídas e autorizadas pelo servidor." : "Escolha a empresa para acessar seus módulos, sistemas e ativos.");
         const search = el("input"); search.type = "search"; search.placeholder = "Buscar cliente"; search.setAttribute("aria-label", "Buscar cliente"); search.className = "client-search";
         const grid = el("div", undefined, "client-grid"), empty = el("p", "Nenhum cliente encontrado.", "empty-state");
         container.append(search, grid, empty);
@@ -145,7 +148,7 @@
           for (const client of clients) {
             const card = el("button", undefined, "client-card"); card.type = "button";
             const mark = el("span", client.name.slice(0, 2).toUpperCase(), "client-monogram"); mark.setAttribute("aria-hidden", "true");
-            card.append(mark, el("span", "EMPRESA CLIENTE", "eyebrow"), el("strong", client.displayName || client.name), el("span", "Ver módulos e ativos →", "card-link"));
+            card.append(mark, el("span", "EMPRESA CLIENTE", "eyebrow"), el("strong", client.displayName || client.name), el("span", ctx.assignedInspector ? "Ver minhas inspeções →" : "Ver módulos e ativos →", "card-link"));
             card.onclick = () => options.onSelectClient(client.id); grid.append(card);
           }
         };
@@ -253,6 +256,7 @@
       } else notice(evidence, "Link documental seguro não disponível. A referência será preservada para conferência.");
     }
     function showAssets(module) {
+      if (module === "integridade" && inspections?.renderAssetList(container, current)) return;
       container.append(el("h1", modules[module].views.find(([view]) => view === "ativos")?.[1] || "Ativos do módulo"));
       const contract = contracts(module).find((item) => item.id === current.contractId);
       const system = records("system").find((r) => r.id === current.itemId);
@@ -434,24 +438,24 @@
     function showRtis(itemId) {
       const state = data(), validAssets = new Map(assets().map((asset) => [asset.id, asset])),
         project = contracts("rtis").find(c => c.id === current.contractId),
-        list = (state.rti || []).filter((rti) => (!rti.assetId || validAssets.has(rti.assetId)) && (!project || (project.rtiIds || []).includes(rti.id)));
+        list = (state.rti || []).filter((rti) => (!rti.assetId || validAssets.has(rti.assetId)) && (!project || (project.rtiIds || []).includes(rti.id) || rti.contractId === project.id && (project.assetIds || []).includes(rti.assetId)));
       if (["fila", "inicio", "acoes"].includes(current.view) && itemId === "_") {
         container.append(el("h1", "RTIs abertas e histórico"));
         notice(container, "A RTI documentada acompanha a origem com o mesmo ID, sem cópia. Várias RTIs da mesma TAG permanecem separadas. A situação histórica da fonte não confirma que a RTI continua aberta hoje; vínculos não confirmados permanecem pendentes.");
         const search = el("input"); search.type = "search"; search.placeholder = "Buscar por TAG ou recomendação"; search.setAttribute("aria-label", "Buscar RTI");
         const filter = el("select"); filter.setAttribute("aria-label", "Filtrar situação da RTI");
-        for (const [value, label] of [["", "Todas as situações"], ["aberta", "Abertas com confirmação atual"], ["historica", "Situação histórica a confirmar"], ["encerrada", "Encerradas"]]) { const opt = el("option", label); opt.value = value; filter.append(opt); }
+        for (const [value, label] of [["", "Todas as situações"], ["aberta", "Abertas para acompanhamento"], ["historica", "Situação física a confirmar"], ["encerrada", "Encerradas"]]) { const opt = el("option", label); opt.value = value; filter.append(opt); }
         const toolbar = el("div", undefined, "flow-filter"); toolbar.append(search, filter); container.append(toolbar);
         const cards = [];
         for (const rti of list) {
           const card = section(container, rti.title);
           card.dataset.rtiId = rti.id;
-          fields(card, [["ID da RTI", rti.id], ["TAG confirmada", validAssets.get(rti.assetId)?.tag || "Vínculo com ativo pendente"], ["Prazo documentado", rti.due || "Pendente de definição"]]);
+          fields(card, [["ID da RTI", rti.id], ["TAG confirmada", validAssets.get(rti.assetId)?.tag || "Vínculo com ativo pendente"], ["Prazo manual registrado", rti.due || "Pendente de definição"], ["Marco: inspeção realizada", rti.deadlineAnchor?.date || "Data de inspeção pendente"], ["Conferência do prazo", rti.deadlineReviewRequired ? "Revisão necessária após alteração na inspeção ou recomendação" : "Sem cálculo automático pela matriz"]]);
           sourceSituation(card, rti);
           link(card, "Abrir RTI", "rtis", "detalhe", rti.id, "");
           cards.push({ card, rti });
         }
-        const apply = () => { for (const {card, rti} of cards) { const summary = root.PiresAssetCards?.describeRti(rti), text = [rti.title, rti.recommendation, validAssets.get(rti.assetId)?.tag].join(" ").toLocaleLowerCase("pt-BR"); card.hidden = !text.includes(search.value.trim().toLocaleLowerCase("pt-BR")) || filter.value === "aberta" && !summary?.open || filter.value === "historica" && summary?.currentness === "confirmed_current" || filter.value === "encerrada" && !(summary?.currentness === "confirmed_current" && rti.status === "encerrada"); } };
+        const apply = () => { for (const {card, rti} of cards) { const summary = root.PiresAssetCards?.describeRti(rti), text = [rti.title, rti.recommendation, validAssets.get(rti.assetId)?.tag].join(" ").toLocaleLowerCase("pt-BR"); card.hidden = !text.includes(search.value.trim().toLocaleLowerCase("pt-BR")) || filter.value === "aberta" && !(summary?.open || summary?.followupOpen) || filter.value === "historica" && summary?.currentness === "confirmed_current" || filter.value === "encerrada" && !(summary?.currentness === "confirmed_current" && rti.status === "encerrada"); } };
         search.oninput = apply; filter.onchange = apply;
         if (!list.length) notice(container, "Nenhuma RTI disponível neste cliente. Recomendações reais documentadas geram RTI pelo fluxo de achados; RTIs históricas podem ser vinculadas a seu original. Nenhum registro de teste é criado.");
         if (operational()) { operation(container, "documents", { documentType: "rti" }); operation(container, "rtis"); }
@@ -462,7 +466,7 @@
         originAsset = validAssets.get(origin.assetId || rti?.assetId),
         originClientValid = !origin.clientId || origin.clientId === context().client?.id,
         originFinding = records("finding").find((item) => item.id === (origin.findingId || rti?.findingId) && item.assetId === originAsset?.id),
-        inspection = originClientValid && (state.inspection || []).find((item) => item.id === (origin.inspectionId || originFinding?.inspectionId) && item.assetId === originAsset?.id),
+        inspection = originClientValid && (state.inspection || []).find((item) => item.id === (origin.inspectionId || rti?.inspectionId || originFinding?.inspectionId) && item.assetId === originAsset?.id),
         contract = originClientValid && (state.contract || []).find((item) => item.id === (origin.contractId || rti?.contractId || originFinding?.contractId) && (!originAsset || item.assetIds?.includes(originAsset.id))),
         finding = originClientValid && records("finding").find((item) => item.id === (origin.findingId || rti?.findingId) && item.assetId === originAsset?.id),
         document = records("document").find((item) => item.id === rti?.documentId),
@@ -470,13 +474,27 @@
       container.append(el("h1", "RTI · " + (rti?.title || "não selecionada")));
       if (!rti) notice(container, "RTI não selecionada. Estrutura de consulta, sem achado ou prazo preenchido.");
       const source = section(container, "Origem da RTI");
-      fields(source, [["ID interno da RTI", rti?.id], ["Número histórico emitido", rti?.issuedNumber || "Não informado — ID interno não substitui número emitido"], ["Origem", rti?.originType === "documented_recommendation" ? "Recomendação real documentada" : rti?.originType === "historical_rti_document" ? "RTI histórica documentada" : "Não informada"], ["Cliente de origem", originClientValid ? context().client?.name : undefined], ["Contrato / escopo", contract?.name || "Vínculo pendente"], ["Linha / TAG confirmada", originClientValid ? originAsset?.tag || "Vínculo pendente" : undefined], ["Inspeção de origem", inspection?.id], ["Achado", finding?.description || rti?.finding], ["Recomendação", rti?.recommendation || finding?.recommendation], ["Documento de origem", document?.reference], ["Localização no original", rti?.source?.locator ? JSON.stringify(rti.source.locator) : typeof rti?.source === "string" ? rti.source : undefined]]);
+      fields(source, [["ID interno da RTI", rti?.id], ["Número histórico emitido", rti?.issuedNumber || "Não informado — ID interno não substitui número emitido"], ["Origem", rti?.originType === "documented_recommendation" ? "Recomendação real documentada" : rti?.originType === "historical_rti_document" ? "RTI histórica documentada" : rti?.originType === "field_recommendation" ? "Tratativa registrada na inspeção de campo" : "Não informada"], ["Cliente de origem", originClientValid ? context().client?.name : undefined], ["Contrato / escopo", contract?.name || "Vínculo pendente"], ["Linha / TAG confirmada", originClientValid ? originAsset?.tag || "Vínculo pendente" : undefined], ["Inspeção de origem", inspection?.id], ["Achado", finding?.description || rti?.finding], ["Recomendação", rti?.recommendation || finding?.recommendation], ["Documento de origem", document?.reference], ["Localização no original", rti?.source?.locator ? JSON.stringify(rti.source.locator) : typeof rti?.source === "string" ? rti.source : undefined]]);
       sourceSituation(source, rti);
+      if (rti?.originType === "field_recommendation") {
+        const point = records("document").find(item => item.id === rti.pointId && item.recordClass === "field_point_reference" && item.assetId === rti.assetId && item.contractId === rti.contractId && item.inspectionId === rti.inspectionId && item.executionId === rti.executionId && item.lvtItemId === rti.lvtItemId && item.version === rti.pointVersion && item.label === rti.pointLabel);
+        fields(source, [["Origem em campo", "Recomendação de tratativa selecionada na inspeção"], ["Ponto de campo", point?.label || "Vínculo do ponto pendente de conferência"], ["Localização no desenho", point ? "Referência de campo registrada; posição e revisão do isométrico ainda pendentes" : "Ponto de campo ainda não vinculado"], ["Conferência da tratativa", rti.actionabilityStatus === "catalog_declared" ? "Semântica declarada no catálogo da execução" : "Catálogo legado: decisão de tratativa pendente de revisão"]]);
+        if (rti.recommendationWithdrawn) notice(source, "A recomendação foi retirada do rascunho. Esta RTI foi preservada e exige revisão; não foi encerrada automaticamente.");
+      }
       original(source, rti?.source || document?.source);
       const details = section(container, "Causa, prazo e atendimento");
       const cause = typeof rti?.cause === "object" ? rti.cause : null,
         reinspection = typeof rti?.reinspection === "string" ? rti.reinspection : rti?.reinspection && [rti.reinspection.description, rti.reinspection.plannedDate].filter(Boolean).join(" · ");
-      fields(details, [["Situação atual", root.PiresAssetCards?.describeRti(rti).statusLabel || "Atualidade desconhecida"], ["Causa", cause?.description], ["Confirmação da causa", cause?.status === "confirmed" ? "Causa registrada como confirmada" : "Em investigação / não confirmada"], ["Fonte da causa", cause?.evidence || cause?.source], ["Prazo", rti?.due || "Pendente de definição — sem data calculada"], ["Ações necessárias", rti?.actions?.map((action) => typeof action === "string" ? action : action.description).filter(Boolean).join("; ") || "Pendente de definição"], ["Reinspeção", reinspection || "Pendente de definição"], ["Evidência de encerramento", rti?.closureEvidence]]);
+      fields(details, [["Situação atual", root.PiresAssetCards?.describeRti(rti).statusLabel || "Atualidade desconhecida"], ["Causa", cause?.description], ["Confirmação da causa", cause?.status === "confirmed" ? "Causa registrada como confirmada" : "Em investigação / não confirmada"], ["Fonte da causa", cause?.evidence || cause?.source], ["Prazo manual registrado", rti?.due || "Pendente de definição — sem data calculada"], ["Prazo histórico informado na fonte", rti?.sourceDue || "Não informado"], ["Marco: inspeção realizada", rti?.deadlineAnchor?.date || "Data de inspeção pendente"], ["Conferência do prazo", rti?.deadlineReviewRequired ? "Revisão necessária após alteração na inspeção ou recomendação; prazo anterior preservado" : rti?.due ? "Data registrada manualmente; conferir justificativa" : "Pendente de definição pela gestão técnica"], ["Matriz de risco Pires", "Versão e regra não vinculadas a esta RTI; nenhum prazo calculado automaticamente"], ["Ações necessárias", rti?.actions?.map((action) => typeof action === "string" ? action : action.description).filter(Boolean).join("; ") || "Pendente de definição"], ["Reinspeção", reinspection || "Pendente de definição"], ["Evidência de encerramento", rti?.closureEvidence]]);
+      if(rti?.treatmentGuidance){
+        const guide=section(container,"Regra vinculada à recomendação"),projection=rti.treatmentGuidance;
+        notice(guide,root.PiresGestaoInspection?.describeTreatmentGuidance?.(projection)||"Vínculo de regra pendente de conferência técnica.");
+        if(projection.status==='verified_link')fields(guide,[["Referência",projection.ruleRef?.referenceId],["Versão da referência",projection.ruleRef?.representationVersion],["Entrada",projection.ruleRef?.entryId],["Identidade do conteúdo",projection.ruleRef?.contentHash],["Decisão de aplicabilidade",projection.mappingEvidence?.reviewReference],["Data limite automática","Não calculada; regra de contagem e avaliação pendentes"]]);
+      }
+      if(rti?.deadlineDecision?.mode==='manual'){
+        const decision=section(container,"Decisão manual de prazo registrada");
+        fields(decision,[["Data definida",rti.deadlineDecision.due],["Justificativa",rti.deadlineDecision.justification],["Marco da decisão",rti.deadlineDecision.deadlineAnchor?.date],["Versão da inspeção usada",rti.deadlineDecision.deadlineAnchor?.executionVersion],["Registrada em",rti.deadlineDecision.at],["Regra automática", "Não aplicada; registro manual vinculado à inspeção"]]);
+      }
       section(container, "Relatório padrão de RTI", "Estrutura prevista: identificação e origem, achado, evidências, causa confirmada ou em investigação, prazo documentado, ações, reinspeção e histórico. A emissão será validada no módulo; nenhum relatório é gerado por esta tela.");
       const history = section(container, "Histórico e rastreio da origem");
       fields(history, [["ID canônico da RTI", rti?.id], ["Data de registro", rti?.createdAt], ["Data de encerramento", rti?.closedAt]]);
@@ -520,16 +538,16 @@
           if (withoutInspection) panel.append(el("p", withoutInspection + " TAGs sem inspeção registrada neste escopo", "muted"));
           link(panel, "Abrir TAGs deste sistema", module, "ativos", system.id, current.contractId);
           if (options.onReport) {
-            const button = el("button", "Gerar rascunho completo deste sistema"); button.type = "button";
-            button.onclick = async () => { button.disabled = true; try { await options.onReport(system.id); } catch (error) { options.onError?.(error); } finally { button.disabled = false; } };
+            const button = el("button", selectedScope ? "Gerar rascunho deste sistema no projeto" : "Gerar rascunho do acervo geral deste sistema"); button.type = "button";
+            button.onclick = async () => { button.disabled = true; try { await options.onReport(system.id, undefined, current.contractId); } catch (error) { options.onError?.(error); } finally { button.disabled = false; } };
             panel.append(button);
           }
           const campaigns = records("campaign").filter((c) => c.systemId === system.id && c.module === module && (!current.contractId || c.contractId === current.contractId));
           for (const campaign of campaigns) {
             const group = section(panel, campaign.name, "Campanha · " + campaign.status);
             if (options.onReport) {
-              const button = el("button", "Gerar rascunho do relatório deste sistema"); button.type = "button";
-              button.onclick = async () => { button.disabled = true; try { await options.onReport(system.id, campaign.id); } catch (error) { options.onError?.(error); } finally { button.disabled = false; } };
+              const button = el("button", selectedScope ? "Gerar rascunho desta campanha no projeto" : "Gerar rascunho desta campanha"); button.type = "button";
+              button.onclick = async () => { button.disabled = true; try { await options.onReport(system.id, campaign.id, current.contractId); } catch (error) { options.onError?.(error); } finally { button.disabled = false; } };
               group.append(button);
             }
           }
@@ -692,9 +710,35 @@
       notice(container, "Nenhuma campanha ou resultado foi preenchido nesta tela. A estrutura está disponível para avaliação do fluxo.");
       unavailable(container, "Criar campanha ou emitir relatório");
     }
+    function renderAssignedInspector() {
+      const ctx = context(), key = [ctx.tenantId || "_", ctx.client?.id || "_", "assigned"].join("/");
+      if (key !== contextKey) { contextKey = key; inspections?.invalidate(); }
+      const requested = parseHash(root.location.hash), inspection = records("inspection").find(record => record.id === requested?.itemId),
+        permitted = requested?.clientId === (ctx.client?.id || "_") && requested.module === "integridade" &&
+          (requested.view === "minhas" || requested.view === "execucao" && inspection && (!requested.contractId || requested.contractId === inspection.contractId));
+      if (!permitted) root.history.replaceState(null, "", routeHash(ctx.client?.id, "integridade", "minhas", "_"));
+      current = parseHash(root.location.hash);
+      container.classList.remove("project-presentation");
+      container.dataset.client = ctx.client?.id || ""; container.dataset.module = "integridade"; container.dataset.view = ctx.client ? current.view : "minhas";
+      container.dataset.accessMode = "assigned_inspector";
+      container.replaceChildren(); hideLegacy(); breadcrumb.replaceChildren();
+      breadcrumb.append(el("span", "Minha programação"));
+      if (ctx.client) {
+        if (options.onSelectClient) { const clients = el("button", "Clientes com minhas atividades"); clients.type = "button"; clients.onclick = () => options.onSelectClient(""); breadcrumb.append(el("span", "/"), clients); }
+        breadcrumb.append(el("span", "/ " + ctx.client.name));
+      }
+      back.hidden = !ctx.client || current.view === "minhas";
+      back.onclick = () => navigate("integridade", "minhas", "_");
+      if (!ctx.client) showModules();
+      else if (!inspections?.enabled()) notice(container, "A área restrita de inspeções não foi confirmada pelo backend. Atualize o acesso antes de continuar.");
+      else inspections.render(container, current);
+      if (previousRoute !== root.location.hash) { previousRoute = root.location.hash; root.scrollTo?.(0, 0); container.focus?.({ preventScroll: true }); }
+    }
     function render() {
       const ctx = context();
       if (!ctx.authenticated) { container.replaceChildren(); breadcrumb.replaceChildren(); hideLegacy(); return; }
+      if (ctx.assignedInspector) { renderAssignedInspector(); return; }
+      delete container.dataset.accessMode;
       const key = [ctx.tenantId || "local", ctx.client?.id || "_"].join("/");
       if (key !== contextKey) {
         contextKey = key;
@@ -733,11 +777,12 @@
       } else link(breadcrumb, "Gestão de Ativos", "", "inicio", "_", "");
 
       if (current.module) { breadcrumb.append(el("span", "/")); link(breadcrumb, modules[current.module].name, current.module, "inicio", "_", ""); }
-      if (current.contractId) { const project = contracts(current.module).find(c => c.id === current.contractId); breadcrumb.append(el("span", "/")); link(breadcrumb, project?.name || "Projeto", current.module, "painel", "_", current.contractId); }
-      if (current.module && current.view !== "inicio") breadcrumb.append(el("span", " / " + (modules[current.module].views.find(([key]) => key === current.view)?.[1] || (current.view === "painel" ? "Painel" : current.view === "importar" ? "Importação" : current.view === "planejamento" ? "Planejamento" : current.view === "book" ? "Book do ativo" : current.view === "escopo" ? "Escopo do contrato" : "Consulta do registro"))));
+      if (current.contractId) { const project = contracts(current.module).find(c => c.id === current.contractId),projectModule=project?.modules?.includes(current.module)?current.module:project?.modules?.[0]||current.module; breadcrumb.append(el("span", "/")); link(breadcrumb, project?.name || "Projeto", projectModule, "painel", "_", current.contractId); }
+      if (current.module && current.view !== "inicio") breadcrumb.append(el("span", " / " + (modules[current.module].views.find(([key]) => key === current.view)?.[1] || (current.view === "execucao" ? "Execução da inspeção" : current.view === "painel" ? "Painel" : current.view === "importar" ? "Importação" : current.view === "planejamento" ? "Planejamento" : current.view === "book" ? "Book do ativo" : current.view === "escopo" ? "Escopo do contrato" : "Consulta do registro"))));
       back.hidden = !current.module;
       back.onclick = () => {
         if (current.view === "inicio") navigate("", "inicio", "_", "");
+        else if (current.module === "integridade" && current.view === "execucao") navigate("integridade", "minhas", "_", current.contractId);
         else if (current.contractId && ["painel", "importar", "planejamento", "sistemas", "campanhas", "relatorios"].includes(current.view)) navigate(current.module, current.view === "painel" ? "inicio" : "painel", "_", current.view === "painel" ? "" : current.contractId);
         else if (current.module === "integridade" && current.view === "item") { const item = records("lvtItem").find((r) => r.id === current.itemId); navigate("integridade", "lvt", item?.assetId || "_", current.contractId); }
         else if (current.module === "integridade" && current.view === "lvt" && current.itemId !== "_") { const asset = assets().find((a) => a.id === current.itemId); navigate("integridade", "ativos", asset?.systemId || "_", current.contractId); }
@@ -748,7 +793,8 @@
         else if (current.view === "achados" && current.itemId !== "_") navigate(current.module, "achados", "_", current.contractId);
         else navigate(current.module, "inicio", "_", "");
       };
-      if (projects?.render(container,current)) { /* Project screens own their content. */ }
+      if (inspections?.render(container, current)) { /* Dedicated execution and assignment screens. */ }
+      else if (projects?.render(container,current)) { /* Project screens own their content. */ }
       else if (!current.module) showModules();
       else if (current.view === "inicio") showModule(current.module);
       else if (["contratos", "escopo"].includes(current.view)) showContracts(current.module, current.itemId);
@@ -762,6 +808,9 @@
         else for (const id of ["contracts", "indicators"]) document.getElementById(id).hidden = false;
         notice(container, "Registros já existentes do ambiente privado. Os novos processos e campanhas continuam separados desta consulta.");
       } else if (!showOperational(current.module, current.view, current.itemId)) showPlanned(current.module, current.view, current.itemId);
+      if (inspections?.enabled() && current.module === "integridade" && !["minhas", "execucao", "ativos", "lvt"].includes(current.view)) {
+        const navigation = el("nav", undefined, "inspection-toolbar"); link(navigation, "Minhas inspeções", "integridade", "minhas", "_", current.contractId); container.prepend(navigation);
+      }
       if (previousRoute !== root.location.hash) { previousRoute = root.location.hash; root.scrollTo?.(0, 0); container.focus?.({ preventScroll: true }); }
     }
     root.addEventListener("hashchange", render);

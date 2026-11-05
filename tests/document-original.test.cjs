@@ -231,3 +231,21 @@ test("foto PNG verifica CRC, chunks críticos e fim; JPEG verifica marcadores e 
   const truncated = jpegFixture().subarray(0, 45);
   assert.throws(() => validatePhoto(truncated), /fim JPEG/);
 });
+test("foto JPEG rejeita scan vazio ou só com restart markers sem rejeitar baseline, progressivo e bytes escapados válidos", async () => {
+  const { validatePhoto } = await validator, fixtures = require("./fixtures/jpeg-scan-fixtures.json");
+  for (const mode of ["baseline", "progressive"]) {
+    const bytes = Buffer.from(fixtures[mode].base64, "base64"), before = digest(bytes);
+    assert.equal(before, fixtures[mode].sha256);
+    assert.ok(bytes.includes(Buffer.from([255, 0])), "fixture inclui byte FF escapado");
+    assert.ok(bytes.includes(Buffer.from([255, 208])), "fixture inclui marcador restart");
+    const validated = validatePhoto(bytes, { name: "SOMENTE-FIXTURE-" + mode + ".jpg", mime: "image/jpeg" });
+    assert.equal(validated.metadata.width, 32); assert.equal(validated.metadata.height, 24);
+    assert.equal(validated.metadata.validation.scans, mode === "progressive" ? 10 : 1);
+    assert.equal(digest(bytes), before, "validação preserva os bytes originais");
+    const sos = bytes.indexOf(Buffer.from([255, 218])), scanStart = sos + 2 + bytes.readUInt16BE(sos + 2);
+    for (const markers of [Buffer.alloc(0), Buffer.from([255, 208, 255, 209, 255, 215])]) {
+      const empty = Buffer.concat([bytes.subarray(0, scanStart), markers, Buffer.from([255, 217])]);
+      assert.throws(() => validatePhoto(empty), /scan JPEG sem dados de imagem/);
+    }
+  }
+});
