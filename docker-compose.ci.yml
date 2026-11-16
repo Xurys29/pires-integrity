@@ -1,0 +1,33 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ci_db
+      POSTGRES_USER: ci_user
+      POSTGRES_PASSWORD: ci_password
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ci_user -d ci_db"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      DJANGO_SETTINGS_MODULE: pires_integrity.settings
+      DJANGO_DEBUG: "false"
+      DJANGO_SECRET_KEY: ci-only-secret
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,web
+      DB_ENGINE: django.db.backends.postgresql
+      DB_NAME: ci_db
+      DB_USER: ci_user
+      DB_PASSWORD: ci_password
+      DB_HOST: db
+      DB_PORT: "5432"
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["python", "manage.py", "test"]
+

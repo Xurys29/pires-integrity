@@ -1,0 +1,32 @@
+services:
+  web:
+    build: .
+    container_name: container_pires
+    shm_size: '2gb'
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: always  # Se o servidor da Hostinger reiniciar sozinho, ele liga o seu site de volta automaticamente
+    env_file:
+      - .env         # Puxa as suas senhas do banco e a SECRET_KEY com segurança
+    ports:
+      - "127.0.0.1:8000:8000"  # Libera a porta 8000 para podermos acessar o site
+
+    # ATENÇÃO PARA A VPS:
+    # Como o seu PostgreSQL já está rodando direto no Linux e não dentro do Docker,
+    # você vai precisar descomentar (tirar o #) da linha abaixo quando for
+    # colocar isso em produção, para o Docker conseguir enxergar o seu banco.
+    volumes:
+    # - .:/app
+      - ./base_static:/app/base_static
+      - ./static:/app/static
+      - ./media:/app/media
+    network_mode: "host"
+    healthcheck:
+      test: [ "CMD", "curl", "--fail", "--silent", "--show-error", "--max-time", "4", "http://localhost:8000/healthz/" ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s

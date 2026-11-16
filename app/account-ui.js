@@ -365,7 +365,7 @@ window.PiresAccount = (() => {
       const panel = el('clientDocumentDetail'); panel.classList.remove('hidden');
       const title = document.createElement('h2'); title.textContent = record.title;
       const body = document.createElement('pre'); body.textContent = documentText(record);
-      if (body.style) body.style.whiteSpace = 'pre-wrap';
+      body.classList.add('preserve-whitespace');
       const note = document.createElement('p'); note.textContent = 'Consulta somente leitura. Cada download valida novamente a liberação. Arquivos já baixados não podem ser recolhidos.';
       const actions = document.createElement('div'); actions.className = 'actions';
       [['Baixar texto liberado', false], ['Baixar JSON liberado', true]].forEach(([label, json]) => {
