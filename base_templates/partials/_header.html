@@ -1,0 +1,23 @@
+<nav class="navbar">
+    <a href="/" class="navbar-brand">
+        Appa<span>Licitações</span>
+    </a>
+
+    <div class="navbar-links">
+        <a href="/">Início</a>
+        <a href="{% url 'appa:pagina_cadastro' %}">Teste Grátis</a>
+
+        {% if user.is_authenticated %}
+            <a href="#" style="color: #ffc107;">Olá, {{ user.username }}</a>
+            <a href="{% url 'admin:index' %}">Painel Admin</a>
+        {% else %}
+            {% if stakeholder %}
+                <a href="{% url 'appa:atualizar_palavras' identificador=stakeholder.identificador %}" style="color: #ffc107;">Meu Painel</a>
+            {% else %}
+                <a href="{% url 'appa:buscar_clientes' %}">Já sou Cliente</a>
+            {% endif %}
+
+            <a href="{% url 'admin:index' %}">Login</a>
+        {% endif %}
+    </div>
+</nav>

@@ -19,7 +19,7 @@ ALLOWED_HOSTS = [x.strip() for x in env('DJANGO_ALLOWED_HOSTS', 'localhost,127.0
 INSTALLED_APPS = [
     'django.contrib.admin', 'django.contrib.auth', 'django.contrib.contenttypes',
     'django.contrib.sessions', 'django.contrib.messages', 'django.contrib.staticfiles',
-    'django.contrib.postgres', 'rest_framework', 'sistema_pires',
+    'django.contrib.postgres', 'rest_framework', 'sistema_pires','axes','django.contrib.postgres',
 ]
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware', 'django.contrib.sessions.middleware.SessionMiddleware',
@@ -31,7 +31,7 @@ ROOT_URLCONF = 'pires_integrity.urls'
 WSGI_APPLICATION = 'pires_integrity.wsgi.application'
 TEMPLATES = [{
     'BACKEND': 'django.template.backends.django.DjangoTemplates',
-    'DIRS': [BASE_DIR / 'templates'], 'APP_DIRS': True,
+    'DIRS': [BASE_DIR / 'base_templates'], 'APP_DIRS': True,
     'OPTIONS': {'context_processors': [
         'django.template.context_processors.request', 'django.contrib.auth.context_processors.auth',
         'django.contrib.messages.context_processors.messages',

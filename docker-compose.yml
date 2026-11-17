@@ -12,7 +12,7 @@ services:
     env_file:
       - .env         # Puxa as suas senhas do banco e a SECRET_KEY com segurança
     ports:
-      - "127.0.0.1:8000:8000"  # Libera a porta 8000 para podermos acessar o site
+      - "127.0.0.1:8001:8000"  # Libera a porta 8000 para podermos acessar o site
 
     # ATENÇÃO PARA A VPS:
     # Como o seu PostgreSQL já está rodando direto no Linux e não dentro do Docker,
@@ -23,7 +23,7 @@ services:
       - ./base_static:/app/base_static
       - ./static:/app/static
       - ./media:/app/media
-    network_mode: "host"
+    # network_mode: "host"
     healthcheck:
       test: [ "CMD", "curl", "--fail", "--silent", "--show-error", "--max-time", "4", "http://localhost:8000/healthz/" ]
       interval: 10s

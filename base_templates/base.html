@@ -1,0 +1,18 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+{% include "partials/_head.html" %}
+</head>
+<body>
+{% include "partials/_header.html" %}
+<main>
+    {%block content %}{% endblock %}
+    {% include 'partials/_messages.html' %}
+</main>
+{% include "partials/_footer.html" %}
+<div>
+    {% include "partials/_pagination.html" %}
+</div>
+</body>
+</html>

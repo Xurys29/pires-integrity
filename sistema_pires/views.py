@@ -15,11 +15,7 @@ from django.views.decorators.cache import never_cache
 from django.views.decorators.debug import sensitive_post_parameters
 from django.views.decorators.http import require_http_methods, require_GET
 
-from appa_bot.forms import StakeholderForm, AtualizarStakeHolderForm
-from appa_bot.models import Stakeholder
-from appa_bot.portal import SALT, criar_link_portal, permitir_solicitacao
-from appa_bot.services.main_services import MainServices
-from engine_campanha.disparador import Disparador_de_emails
+
 
 logger = logging.getLogger(__name__)
 
