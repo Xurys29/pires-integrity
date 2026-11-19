@@ -26,6 +26,7 @@ services:
       DB_PASSWORD: ci_password
       DB_HOST: db
       DB_PORT: "5432"
+      FERNET_KEY: "KG0_8fa3v56q7OcO-NqsV53t_P_2SSbyPIhzHvjGx20="
     depends_on:
       db:
         condition: service_healthy
