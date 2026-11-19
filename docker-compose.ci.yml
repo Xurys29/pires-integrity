@@ -17,6 +17,7 @@ services:
       dockerfile: Dockerfile
     environment:
       DJANGO_SETTINGS_MODULE: pires_integrity.settings
+      PYTHON_DOTENV_DISABLED: "1"
       DJANGO_DEBUG: "false"
       DJANGO_SECRET_KEY: ci-only-secret
       DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,web
