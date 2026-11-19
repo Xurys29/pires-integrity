@@ -1,0 +1,117 @@
+name: CI e entrega da imagem
+
+on:
+  push:
+    branches: [main, develop, 'ci/**']
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pires-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    name: PostgreSQL, Django e Docker
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      COMPOSE_FILE: docker-compose.ci.yml
+      COMPOSE_PROJECT_NAME: pires-ci
+    steps:
+      - name: Obter o código
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Validar o Compose
+        run: docker compose config --quiet
+
+      - name: Construir a imagem
+        run: docker compose build web
+
+      - name: Iniciar o PostgreSQL temporário
+        run: docker compose up --detach --wait --wait-timeout 90 db
+
+      - name: Conferir dependências instaladas
+        run: docker compose run --rm --no-deps web python -m pip check
+
+      - name: Verificar configuração Django
+        run: docker compose run --rm --no-deps web python manage.py check
+
+      - name: Verificar migrations pendentes no código
+        run: docker compose run --rm --no-deps web python manage.py makemigrations --check --dry-run
+
+      - name: Executar os testes no PostgreSQL
+        run: docker compose run --rm --no-deps web python manage.py test --noinput --verbosity 2
+
+      - name: Iniciar a aplicação pela imagem construída
+        run: >-
+          docker compose run --detach --no-deps --name pires-ci-smoke
+          web python manage.py runserver 0.0.0.0:8000 --noreload
+
+      - name: Conferir resposta HTTP e conexão ao banco
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 30); do
+            if docker exec pires-ci-smoke curl --fail --silent --show-error --max-time 3 http://127.0.0.1:8000/healthz/; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs pires-ci-smoke
+          exit 1
+
+      - name: Mostrar logs em caso de falha
+        if: failure()
+        run: |
+          docker compose logs --no-color || true
+          docker logs pires-ci-smoke || true
+
+      - name: Remover recursos temporários
+        if: always()
+        run: |
+          docker rm --force pires-ci-smoke 2>/dev/null || true
+          docker compose down --volumes --remove-orphans
+
+  publish:
+    name: Publicar imagem aprovada no GHCR
+    needs: ci
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Obter o commit aprovado
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Definir imagem identificada pelo commit
+        shell: bash
+        run: |
+          repository="${GITHUB_REPOSITORY,,}"
+          echo "IMAGE=ghcr.io/${repository}:${GITHUB_SHA}" >> "$GITHUB_ENV"
+
+      - name: Autenticar no GHCR
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+
+      - name: Construir a imagem de entrega
+        run: docker build --file Dockerfile --tag "$IMAGE" .
+
+      - name: Conferir comando de produção e publicar
+        env:
+          DJANGO_SETTINGS_MODULE: pires_integrity.settings
+        run: |
+          docker run --rm --entrypoint gunicorn "$IMAGE" --version
+          docker push "$IMAGE"
+          printf 'Imagem publicada: `%s`\n' "$IMAGE" >> "$GITHUB_STEP_SUMMARY"

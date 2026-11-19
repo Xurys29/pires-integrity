@@ -13,19 +13,27 @@ def env_bool(name, default=False):
     return str(env(name, str(default))).lower() in {'1', 'true', 'yes', 'on'}
 
 SECRET_KEY = env('DJANGO_SECRET_KEY', 'django-insecure-development-only-change-me')
+FERNET_KEY = os.environ["FERNET_KEY"]
 DEBUG = env_bool('DJANGO_DEBUG', True)
 ALLOWED_HOSTS = [x.strip() for x in env('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',') if x.strip()]
 
 INSTALLED_APPS = [
-    'django.contrib.admin', 'django.contrib.auth', 'django.contrib.contenttypes',
-    'django.contrib.sessions', 'django.contrib.messages', 'django.contrib.staticfiles',
-    'django.contrib.postgres', 'rest_framework', 'sistema_pires','axes','django.contrib.postgres',
+    'django.contrib.admin',
+    'django.contrib.auth',
+    'django.contrib.contenttypes',
+    'django.contrib.sessions',
+    'django.contrib.messages',
+    'django.contrib.staticfiles',
+    'django.contrib.postgres',
+    'rest_framework',
+    'sistema_pires',
+    'axes',
 ]
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware', 'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware', 'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware', 'django.contrib.messages.middleware.MessageMiddleware',
-    'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'django.middleware.clickjacking.XFrameOptionsMiddleware','axes.middleware.AxesMiddleware',
 ]
 ROOT_URLCONF = 'pires_integrity.urls'
 WSGI_APPLICATION = 'pires_integrity.wsgi.application'
@@ -37,7 +45,10 @@ TEMPLATES = [{
         'django.contrib.messages.context_processors.messages',
     ]},
 }]
-
+AUTHENTICATION_BACKENDS = [
+    'axes.backends.AxesStandaloneBackend',
+    'django.contrib.auth.backends.ModelBackend',
+]
 DB_ENGINE = env('DB_ENGINE', 'django.db.backends.postgresql')
 if DB_ENGINE.endswith('sqlite3'):
     DATABASES = {'default': {'ENGINE': DB_ENGINE, 'NAME': env('DB_NAME', BASE_DIR / 'db.sqlite3')}}
