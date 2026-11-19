@@ -19,13 +19,14 @@ ALLOWED_HOSTS = [x.strip() for x in env('DJANGO_ALLOWED_HOSTS', 'localhost,127.0
 INSTALLED_APPS = [
     'django.contrib.admin', 'django.contrib.auth', 'django.contrib.contenttypes',
     'django.contrib.sessions', 'django.contrib.messages', 'django.contrib.staticfiles',
-    'django.contrib.postgres', 'rest_framework', 'sistema_pires','axes','django.contrib.postgres',
+    'django.contrib.postgres', 'rest_framework', 'sistema_pires', 'axes',
 ]
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware', 'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware', 'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware', 'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'axes.middleware.AxesMiddleware',
 ]
 ROOT_URLCONF = 'pires_integrity.urls'
 WSGI_APPLICATION = 'pires_integrity.wsgi.application'
@@ -72,3 +73,9 @@ X_FRAME_OPTIONS = 'DENY'
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 CSRF_TRUSTED_ORIGINS = [x.strip() for x in env('CSRF_TRUSTED_ORIGINS', '').split(',') if x.strip()]
 EMAIL_BACKEND = env('EMAIL_BACKEND', 'django.core.mail.backends.console.EmailBackend')
+
+
+AUTHENTICATION_BACKENDS = [
+    'axes.backends.AxesStandaloneBackend',
+    'django.contrib.auth.backends.ModelBackend',
+]
