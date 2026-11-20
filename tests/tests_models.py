@@ -10,7 +10,7 @@ from django.db.models.deletion import ProtectedError
 from django.test import TestCase
 from django.utils import timezone
 
-from .models import (
+from sistema_pires.models import (
     Asset,
     Campaign,
     CampaignAsset,
