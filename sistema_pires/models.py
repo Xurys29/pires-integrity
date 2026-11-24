@@ -311,6 +311,9 @@ class Unit(CompanyModel):
             models.UniqueConstraint(fields=["client", "name"], name="pi_unit_name")
         ]
 
+    def __str__(self):
+        return self.name
+
 
 class System(CompanyModel):
     unit = models.ForeignKey(Unit, on_delete=models.PROTECT, related_name="systems")
@@ -323,6 +326,9 @@ class System(CompanyModel):
         constraints = CompanyModel.Meta.constraints + [
             models.UniqueConstraint(fields=["unit", "name"], name="pi_system_name")
         ]
+
+    def __str__(self):
+        return self.name
 
 
 class Asset(CompanyModel):
