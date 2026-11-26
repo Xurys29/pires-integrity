@@ -1,4 +1,4 @@
-"""Domínio Pires Integrity. Django 5.2+ e PostgreSQL.
+"""Domínio Pires Integrity. Estrutura de medição e cálculo revisada em 26/11/2026.
 
 Instalar como sistema_pires/models.py. Fluxos transacionais, autorização,
 assinatura, sincronização e cálculos técnicos pertencem aos serviços.
@@ -14,6 +14,7 @@ from django.core.validators import MaxValueValidator, MinValueValidator, RegexVa
 from django.db import models
 from django.db.models import F, Q
 from django.db.models.functions import Lower
+from django.utils import timezone
 
 SHA256 = RegexValidator(r"^[0-9a-f]{64}$", "Informe um SHA-256 hexadecimal em minúsculas.")
 
@@ -131,6 +132,37 @@ class CompanyModel(BaseModel):
             related_company = getattr(related, "company_id", None)
             if related_company and related_company != self.company_id:
                 raise ValidationError({field.name: "O registro pertence a outra organização."})
+
+
+class ImmutableCompanyRecord(CompanyModel):
+    """Evento imutável pelo save/delete normal. SQL e operações em lote exigem serviço."""
+
+    class Meta(CompanyModel.Meta):
+        abstract = True
+
+    def clean(self):
+        super().clean()
+        if not self._state.adding:
+            previous = type(self).objects.filter(pk=self.pk).values().first()
+            if previous:
+                for field in self._meta.concrete_fields:
+                    if field.name in {"updated_at"}:
+                        continue
+                    if previous[field.attname] != getattr(self, field.attname):
+                        raise ValidationError("Registro imutável: acrescente um novo evento/revisão.")
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("Registro rastreável não pode ser apagado pelo fluxo normal.")
+
+
+def validate_approval(instance):
+    if bool(instance.approved_by_id) != bool(instance.approved_at):
+        raise ValidationError("Aprovação exige responsável e data em conjunto.")
+
+
+def measurement_date(value):
+    """Dia civil no fuso configurado, sem taxa entre leituras do mesmo dia."""
+    return timezone.localtime(value).date() if timezone.is_aware(value) else value.date()
 
 
 class Role(models.TextChoices):
@@ -764,6 +796,11 @@ class IsometricRevision(CompanyModel):
 
 
 class MeasurementPoint(CompanyModel):
+    display_name = models.CharField(max_length=150, blank=True)
+    component = models.ForeignKey(
+        "AssetComponent", null=True, blank=True, on_delete=models.PROTECT,
+        related_name="measurement_points",
+    )
     asset = models.ForeignKey(Asset, on_delete=models.PROTECT, related_name="measurement_points")
     code = models.CharField(max_length=80)
     active = models.BooleanField(default=True)
@@ -773,6 +810,19 @@ class MeasurementPoint(CompanyModel):
         constraints = CompanyModel.Meta.constraints + [
             models.UniqueConstraint(fields=["asset", "code"], name="pi_point_code")
         ]
+
+
+    def clean(self):
+        super().clean()
+        if self.component_id:
+            same_reference(self, "asset", self.component.asset_id)
+        if not self._state.adding:
+            previous = type(self).objects.filter(pk=self.pk).values("component_id").first()
+            if previous and previous["component_id"] != self.component_id:
+                raise ValidationError({"component": "Componente exige migração rastreável, não edição."})
+
+    def __str__(self):
+        return self.display_name or self.code
 
 
 class MeasurementPointRevision(CompanyModel):
@@ -815,6 +865,7 @@ class MeasurementPointRevision(CompanyModel):
 
 
 class MeasurementPosition(CompanyModel):
+    display_name = models.CharField(max_length=150, blank=True)
     point = models.ForeignKey(MeasurementPoint, on_delete=models.PROTECT, related_name="positions")
     code = models.CharField(max_length=80, help_text="Ex.: 0°, 90°, superior, posição única.")
     angle_degrees = models.DecimalField(max_digits=6, decimal_places=3, null=True, blank=True)
@@ -1010,6 +1061,15 @@ class ThicknessUnit(models.TextChoices):
 
 
 class ThicknessRequirement(CompanyModel):
+    valid_from = models.DateField(null=True, blank=True)
+    valid_until = models.DateField(null=True, blank=True)
+    scope_description = models.TextField(blank=True)
+    applicable_code = models.CharField(max_length=150, blank=True)
+    calculation_memory = models.JSONField(default=dict, blank=True)
+    supersedes = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.PROTECT,
+        related_name="successors",
+    )
     asset = models.ForeignKey(
         Asset, on_delete=models.PROTECT, related_name="thickness_requirements"
     )
@@ -1052,6 +1112,8 @@ class ThicknessRequirement(CompanyModel):
     immutable_fields = ("asset_id", "point_id", "position_id")
     freeze_on = "approved_at"
     frozen_fields = (
+        "valid_from", "valid_until", "scope_description", "applicable_code",
+        "calculation_memory", "supersedes_id",
         "required_thickness",
         "unit",
         "revision",
@@ -1067,10 +1129,27 @@ class ThicknessRequirement(CompanyModel):
             models.CheckConstraint(
                 condition=Q(required_thickness__gt=0), name="pi_required_positive"
             )
+            , models.CheckConstraint(
+                condition=Q(valid_from__isnull=True) | Q(valid_until__isnull=True)
+                | Q(valid_until__gte=F("valid_from")), name="pi_req_valid_dates"
+            )
         ]
 
     def clean(self):
         super().clean()
+        validate_approval(self)
+        if self.approved_at and (not self.valid_from or not self.scope_description or not self.applicable_code):
+            raise ValidationError("Para aprovar, informe início de vigência, escopo e código/edição aplicável.")
+        if self.supersedes_id:
+            if self.supersedes_id == self.pk:
+                raise ValidationError({"supersedes": "Não pode substituir a si próprio."})
+            previous = self.supersedes
+            if (previous.asset_id, previous.point_id, previous.position_id) != (self.asset_id, self.point_id, self.position_id):
+                raise ValidationError({"supersedes": "A revisão deve manter o mesmo escopo."})
+            if not previous.approved_at:
+                raise ValidationError({"supersedes": "O requisito anterior precisa estar aprovado."})
+            if self.valid_from and previous.valid_from and self.valid_from <= previous.valid_from:
+                raise ValidationError({"valid_from": "A revisão deve iniciar depois da anterior."})
         if self.point_id:
             same_reference(self, "asset", self.point.asset_id)
         if self.position_id:
@@ -1081,6 +1160,36 @@ class ThicknessReading(CompanyModel):
     class Origin(models.TextChoices):
         FIELD = "field", "Campo"
         HISTORICAL = "historical", "Importação histórica"
+
+    series = models.ForeignKey(
+        "MeasurementSeries", null=True, blank=True, on_delete=models.PROTECT,
+        related_name="readings",
+    )
+    original_resolution = models.DecimalField(
+        max_digits=18, decimal_places=10, null=True, blank=True,
+        validators=[MinValueValidator(Decimal("0.0000000001"))],
+        help_text="Resolução na unidade original; não inferir pelos decimais digitados.",
+    )
+    source_evidence = models.ForeignKey(
+        StoredFile, null=True, blank=True, on_delete=models.PROTECT,
+        related_name="reading_sources",
+    )
+    method_reference = models.CharField(max_length=200, blank=True)
+    service_conditions = models.JSONField(default=dict, blank=True)
+    corrects = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.PROTECT,
+        related_name="proposed_corrections",
+    )
+    correction_reason = models.TextField(blank=True)
+    correction_evidence = models.ForeignKey(
+        StoredFile, null=True, blank=True, on_delete=models.PROTECT,
+        related_name="reading_corrections",
+    )
+    correction_proposed_by = models.ForeignKey(
+        Professional, null=True, blank=True, on_delete=models.PROTECT,
+        related_name="proposed_reading_corrections",
+    )
+    correction_proposed_at = models.DateTimeField(null=True, blank=True)
 
     execution = models.ForeignKey(
         InspectionExecution, on_delete=models.PROTECT, related_name="readings"
@@ -1110,14 +1219,21 @@ class ThicknessReading(CompanyModel):
         Professional, on_delete=models.PROTECT, related_name="thickness_readings"
     )
     value = models.DecimalField(
-        max_digits=12, decimal_places=5, validators=[MinValueValidator(Decimal("0.00001"))]
+        max_digits=18, decimal_places=10, validators=[MinValueValidator(Decimal("0.0000000001"))]
     )
     unit = models.CharField(max_length=2, choices=ThicknessUnit.choices)
     sequence = models.PositiveIntegerField(default=1, validators=[MinValueValidator(1)])
     origin = models.CharField(max_length=12, choices=Origin.choices, default=Origin.FIELD)
     source = models.JSONField(default=dict, blank=True)
     notes = models.TextField(blank=True)
-    immutable_fields = ("execution_id", "position_id", "point_revision_id")
+    # Todas as leituras novas são brutas e imutáveis. Correção cria outra linha.
+    immutable_fields = (
+        "execution_id", "position_id", "point_revision_id", "series_id", "value", "unit",
+        "measured_at", "measured_by_id", "instrument_use_id", "requirement_id", "sequence",
+        "origin", "source", "notes", "original_resolution", "source_evidence_id",
+        "method_reference", "service_conditions", "corrects_id", "correction_reason",
+        "correction_evidence_id", "correction_proposed_by_id", "correction_proposed_at",
+    )
 
     class Meta(CompanyModel.Meta):
         constraints = CompanyModel.Meta.constraints + [
@@ -1130,6 +1246,22 @@ class ThicknessReading(CompanyModel):
 
     def clean(self):
         super().clean()
+        if self.series_id:
+            same_reference(self, "position", self.series.position_id)
+            if self.measured_at and measurement_date(self.measured_at) < self.series.started_on:
+                raise ValidationError({"measured_at": "Leitura anterior ao início da série."})
+        if self.corrects_id:
+            old = self.corrects
+            if old.pk == self.pk:
+                raise ValidationError({"corrects": "Uma leitura não corrige a si própria."})
+            for field in ("execution", "position", "point_revision", "series"):
+                same_reference(self, field, getattr(old, f"{field}_id"))
+            if not all((self.correction_reason, self.correction_evidence_id,
+                        self.correction_proposed_by_id, self.correction_proposed_at)):
+                raise ValidationError("Correção exige motivo, evidência, proponente e data.")
+        elif any((self.correction_reason, self.correction_evidence_id,
+                  self.correction_proposed_by_id, self.correction_proposed_at)):
+            raise ValidationError({"corrects": "Informe a leitura corrigida."})
         if self.position_id and self.point_revision_id:
             if self.position.point_id != self.point_revision.point_id:
                 raise ValidationError({"point_revision": "Revisão de outro ponto."})
@@ -1144,6 +1276,10 @@ class ThicknessReading(CompanyModel):
                 raise ValidationError({"requirement": "Requisito fora do escopo da leitura."})
         if self.instrument_use_id:
             same_reference(self, "execution", self.instrument_use.execution_id)
+
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("Preserve a leitura bruta; registre invalidação ou correção.")
 
 
 class Finding(CompanyModel):
@@ -1740,3 +1876,436 @@ class OperationReceipt(CompanyModel):
                 fields=["company", "actor", "action", "request_id"], name="pi_operation_request"
             )
         ]
+
+
+# Camada de dados para medição automática. A execução das fórmulas fica nos serviços.
+class AssetComponent(CompanyModel):
+    asset = models.ForeignKey(Asset, on_delete=models.PROTECT, related_name="components")
+    code = models.CharField(max_length=100)
+    description = models.TextField()
+    nominal_thickness = models.DecimalField(
+        max_digits=18, decimal_places=10, null=True, blank=True,
+        validators=[MinValueValidator(Decimal("0.0000000001"))],
+    )
+    nominal_unit = models.CharField(max_length=2, choices=ThicknessUnit.choices, blank=True)
+    nominal_source = models.TextField(blank=True)
+    active = models.BooleanField(default=True)
+    immutable_fields = ("asset_id", "code")
+
+    class Meta(CompanyModel.Meta):
+        constraints = CompanyModel.Meta.constraints + [
+            models.UniqueConstraint(fields=["asset", "code"], name="pi_component_code"),
+            models.CheckConstraint(
+                condition=Q(nominal_thickness__isnull=True) | Q(nominal_thickness__gt=0),
+                name="pi_nominal_positive",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        if (self.nominal_thickness is not None) != bool(self.nominal_unit):
+            raise ValidationError("Espessura nominal exige valor e unidade em conjunto.")
+        if self.nominal_thickness is not None and not self.nominal_source:
+            raise ValidationError({"nominal_source": "Identifique a fonte nominal."})
+
+    def __str__(self):
+        return f"{self.asset} / {self.code}"
+
+
+class MeasurementSeries(CompanyModel):
+    """Uma série representa continuidade física. Nova parede exige nova série."""
+
+    procedure = models.ForeignKey(
+        "ThicknessProcedureVersion", null=True, blank=True, on_delete=models.PROTECT,
+        related_name="measurement_series", verbose_name="Procedimento de medição",
+        help_text="Versão técnica utilizada nos cálculos desta série. Sem seleção, o cálculo automático fica pendente.",
+    )
+
+    position = models.ForeignKey(MeasurementPosition, on_delete=models.PROTECT, related_name="series")
+    code = models.CharField(max_length=80)
+    started_on = models.DateField()
+    physical_description = models.TextField()
+    start_reason = models.TextField()
+    predecessor = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.PROTECT, related_name="successors"
+    )
+    origin_evidence = models.ForeignKey(
+        StoredFile, null=True, blank=True, on_delete=models.PROTECT, related_name="series_origins"
+    )
+    immutable_fields = (
+        "position_id", "code", "started_on", "physical_description", "start_reason",
+        "predecessor_id", "origin_evidence_id",
+    )
+
+    class Meta(CompanyModel.Meta):
+        constraints = CompanyModel.Meta.constraints + [
+            models.UniqueConstraint(fields=["position", "code"], name="pi_series_code")
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.predecessor_id:
+            if self.predecessor_id == self.pk:
+                raise ValidationError({"predecessor": "Série não pode suceder a si própria."})
+            if self.position_id and self.predecessor.position.point.asset_id != self.position.point.asset_id:
+                raise ValidationError({"predecessor": "A série anterior é de outro ativo."})
+            if self.started_on and self.started_on <= self.predecessor.started_on:
+                raise ValidationError({"started_on": "Nova série deve iniciar depois da anterior."})
+
+    def __str__(self):
+        return f"{self.position.code} / {self.code}"
+
+
+class MeasurementSeriesRevision(ImmutableCompanyRecord):
+    """Decisão de comparabilidade; a decisão mais recente aplicável governa o uso."""
+
+    class Decision(models.TextChoices):
+        PENDING = "pending", "Revisão pendente"
+        COMPARABLE = "comparable", "Comparável"
+        NOT_COMPARABLE = "not_comparable", "Não comparável: iniciar outra série"
+
+    series = models.ForeignKey(MeasurementSeries, on_delete=models.PROTECT, related_name="reviews")
+    point_revision = models.ForeignKey(
+        MeasurementPointRevision, on_delete=models.PROTECT, related_name="series_reviews"
+    )
+    sequence = models.PositiveIntegerField(validators=[MinValueValidator(1)])
+    effective_on = models.DateField()
+    decision = models.CharField(max_length=20, choices=Decision.choices, default=Decision.PENDING)
+    method_reference = models.CharField(max_length=200, blank=True)
+    resolution_mm = models.DecimalField(
+        max_digits=18, decimal_places=10, null=True, blank=True,
+        validators=[MinValueValidator(Decimal("0.0000000001"))],
+    )
+    service_conditions = models.JSONField(default=dict, blank=True)
+    reason = models.TextField()
+    evidence = models.ForeignKey(
+        StoredFile, null=True, blank=True, on_delete=models.PROTECT, related_name="series_reviews"
+    )
+    reviewed_by = models.ForeignKey(
+        Professional, null=True, blank=True, on_delete=models.PROTECT, related_name="series_reviews"
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta(ImmutableCompanyRecord.Meta):
+        constraints = ImmutableCompanyRecord.Meta.constraints + [
+            models.UniqueConstraint(fields=["series", "sequence"], name="pi_series_review_seq")
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.series_id and self.point_revision_id:
+            if self.series.position.point_id != self.point_revision.point_id:
+                raise ValidationError({"point_revision": "Revisão de outro ponto."})
+            if self.effective_on and self.effective_on < max(self.series.started_on, self.point_revision.effective_on):
+                raise ValidationError({"effective_on": "Vigência anterior à série ou revisão do ponto."})
+        if self.decision != self.Decision.PENDING:
+            if not all((self.reviewed_by_id, self.reviewed_at, self.evidence_id)):
+                raise ValidationError("Decisão de comparabilidade exige responsável, data e evidência.")
+
+
+class ThicknessProcedureVersion(CompanyModel):
+    class Status(models.TextChoices):
+        TEST = "test", "Teste: não homologado"
+        APPROVED = "approved", "Procedimento aprovado"
+
+    code = models.CharField(max_length=100)
+    revision = models.CharField(max_length=40)
+    scope = models.TextField()
+    applicable_codes = models.JSONField(default=list, blank=True)
+    status = models.CharField(max_length=12, choices=Status.choices, default=Status.TEST)
+    days_per_year = models.PositiveSmallIntegerField(default=365, validators=[MinValueValidator(365), MaxValueValidator(365)])
+    rules = models.JSONField(default=dict, blank=True)
+    evidence = models.ForeignKey(
+        StoredFile, null=True, blank=True, on_delete=models.PROTECT, related_name="thickness_procedures"
+    )
+    approved_by = models.ForeignKey(
+        Professional, null=True, blank=True, on_delete=models.PROTECT, related_name="thickness_procedures"
+    )
+    approved_at = models.DateTimeField(null=True, blank=True)
+    immutable_fields = ("code", "revision")
+    freeze_on = "approved_at"
+    frozen_fields = (
+        "scope", "applicable_codes", "status", "days_per_year", "rules",
+        "evidence_id", "approved_by_id", "approved_at",
+    )
+
+    class Meta(CompanyModel.Meta):
+        constraints = CompanyModel.Meta.constraints + [
+            models.UniqueConstraint(fields=["company", "code", "revision"], name="pi_procedure_rev"),
+            models.CheckConstraint(condition=Q(days_per_year=365), name="pi_procedure_days"),
+        ]
+
+    def clean(self):
+        super().clean()
+        validate_approval(self)
+        if self.status == self.Status.APPROVED:
+            if not all((self.approved_at, self.evidence_id, self.rules)):
+                raise ValidationError("Homologação exige aprovação, procedimento anexo e regras versionadas.")
+        elif self.approved_at:
+            raise ValidationError({"status": "Procedimento aprovado não pode permanecer em teste."})
+
+
+    def __str__(self):
+        return f"{self.code} / revisão {self.revision} — {self.get_status_display()}"
+
+
+class ThicknessReadingReview(ImmutableCompanyRecord):
+    """Validação é um evento; ausência de evento nunca significa aprovação."""
+
+    class Decision(models.TextChoices):
+        PENDING = "pending", "Pendente"
+        VALID = "valid", "Válida"
+        INVALID = "invalid", "Inválida"
+
+    reading = models.ForeignKey(ThicknessReading, on_delete=models.PROTECT, related_name="reviews")
+    sequence = models.PositiveIntegerField(validators=[MinValueValidator(1)])
+    decision = models.CharField(max_length=12, choices=Decision.choices, default=Decision.PENDING)
+    representative = models.BooleanField(default=False)
+    comparable = models.BooleanField(default=False)
+    baseline_approved = models.BooleanField(default=False)
+    correction_approved = models.BooleanField(default=False)
+    reviewer = models.ForeignKey(Professional, on_delete=models.PROTECT, related_name="reading_reviews")
+    reviewed_at = models.DateTimeField()
+    reason = models.TextField()
+    evidence = models.ForeignKey(
+        StoredFile, null=True, blank=True, on_delete=models.PROTECT, related_name="reading_reviews"
+    )
+
+    class Meta(ImmutableCompanyRecord.Meta):
+        constraints = ImmutableCompanyRecord.Meta.constraints + [
+            models.UniqueConstraint(fields=["reading", "sequence"], name="pi_reading_review_seq"),
+            models.CheckConstraint(
+                condition=Q(decision="valid") | Q(representative=False, comparable=False, baseline_approved=False, correction_approved=False),
+                name="pi_review_valid_flags",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.decision != self.Decision.VALID and any((self.representative, self.comparable, self.baseline_approved, self.correction_approved)):
+            raise ValidationError("Somente leitura válida pode ser representativa/comparável/aprovada.")
+        if self.baseline_approved and not (self.comparable and self.representative):
+            raise ValidationError("Referência inicial exige leitura comparável e representativa.")
+        if self.reading_id:
+            r = self.reading
+            if self.decision == self.Decision.VALID and r.origin == ThicknessReading.Origin.HISTORICAL and not (r.source_evidence_id or r.source):
+                raise ValidationError({"reading": "Histórico importado exige evidência ou origem documentada."})
+            if self.decision == self.Decision.VALID and not r.series_id:
+                raise ValidationError({"reading": "Associe a leitura a uma série antes de validar."})
+            if self.correction_approved and not r.corrects_id:
+                raise ValidationError("Não existe proposta de correção nesta leitura.")
+            if (self.baseline_approved or self.correction_approved) and not self.evidence_id:
+                raise ValidationError({"evidence": "Aprovação exige evidência."})
+
+
+class ThicknessCalculation(ImmutableCompanyRecord):
+    """Snapshot imutável. Não executa fórmulas nem constitui conclusão técnica."""
+
+    class Dimensional(models.TextChoices):
+        PENDING = "pending", "Requisito pendente"
+        ABOVE = "above", "Acima do requerido: não é aprovação técnica"
+        LIMIT = "limit", "No limite"
+        BELOW = "below", "Abaixo do requerido"
+
+    class Trend(models.TextChoices):
+        INSUFFICIENT = "insufficient", "Histórico insuficiente"
+        LOSS = "loss", "Redução medida"
+        ZERO = "zero", "Taxa zero: vida indeterminada"
+        REVIEW = "review", "Revisar comparabilidade"
+
+    series = models.ForeignKey(MeasurementSeries, on_delete=models.PROTECT, related_name="calculations")
+    reading = models.ForeignKey(ThicknessReading, on_delete=models.PROTECT, related_name="calculations")
+    initial_reading = models.ForeignKey(
+        ThicknessReading, null=True, blank=True, on_delete=models.PROTECT, related_name="initial_calculations"
+    )
+    previous_reading = models.ForeignKey(
+        ThicknessReading, null=True, blank=True, on_delete=models.PROTECT, related_name="previous_calculations"
+    )
+    requirement = models.ForeignKey(
+        ThicknessRequirement, null=True, blank=True, on_delete=models.PROTECT, related_name="calculations"
+    )
+    procedure = models.ForeignKey(ThicknessProcedureVersion, on_delete=models.PROTECT, related_name="calculations")
+    reading_review = models.ForeignKey(
+        ThicknessReadingReview, null=True, blank=True, on_delete=models.PROTECT,
+        related_name="current_calculations",
+    )
+    initial_review = models.ForeignKey(
+        ThicknessReadingReview, null=True, blank=True, on_delete=models.PROTECT,
+        related_name="baseline_calculations",
+    )
+    previous_review = models.ForeignKey(
+        ThicknessReadingReview, null=True, blank=True, on_delete=models.PROTECT,
+        related_name="previous_calculations",
+    )
+    series_review = models.ForeignKey(
+        MeasurementSeriesRevision, null=True, blank=True, on_delete=models.PROTECT,
+        related_name="calculations",
+    )
+    engine_version = models.CharField(max_length=100)
+    calculated_at = models.DateTimeField(default=timezone.now)
+    input_snapshot = models.JSONField(help_text="Valores exatos como strings decimais, unidades, evidências e decisões utilizadas.")
+    result_snapshot = models.JSONField(default=dict, blank=True, help_text="Representações decimais sem arredondamento de exibição.")
+    warnings = models.JSONField(default=list, blank=True)
+    dimensional = models.CharField(max_length=12, choices=Dimensional.choices, default=Dimensional.PENDING)
+    trend = models.CharField(max_length=15, choices=Trend.choices, default=Trend.INSUFFICIENT)
+    # As colunas são projeções para consulta; os snapshots preservam a precisão do motor.
+    margin_mm = models.DecimalField(max_digits=30, decimal_places=15, null=True, blank=True)
+    loss_percent = models.DecimalField(max_digits=30, decimal_places=15, null=True, blank=True)
+    short_rate_mm_year = models.DecimalField(max_digits=30, decimal_places=15, null=True, blank=True)
+    long_rate_mm_year = models.DecimalField(max_digits=30, decimal_places=15, null=True, blank=True)
+    triage_rate_mm_year = models.DecimalField(max_digits=30, decimal_places=15, null=True, blank=True)
+    triage_reason = models.TextField(blank=True)
+    life_short_days = models.PositiveBigIntegerField(null=True, blank=True)
+    life_long_days = models.PositiveBigIntegerField(null=True, blank=True)
+    life_triage_days = models.PositiveBigIntegerField(null=True, blank=True)
+    supersedes = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.PROTECT, related_name="recalculations"
+    )
+
+    class Meta(ImmutableCompanyRecord.Meta):
+        indexes = [models.Index(fields=["reading", "calculated_at"], name="pi_calc_reading_date")]
+        constraints = ImmutableCompanyRecord.Meta.constraints + [
+            models.CheckConstraint(
+                condition=Q(triage_rate_mm_year__isnull=True) | Q(triage_rate_mm_year__gt=0),
+                name="pi_calc_triage_positive",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        if not self.reading_id or not self.series_id:
+            return
+        current = self.reading
+        same_reference(self, "series", current.series_id)
+        for reading_name, review_name in (("reading", "reading_review"), ("initial_reading", "initial_review"), ("previous_reading", "previous_review")):
+            reading = getattr(self, reading_name, None)
+            review = getattr(self, review_name, None)
+            if reading and not review:
+                # Resultado completamente pendente pode existir sem validação da leitura atual.
+                if reading_name != "reading" or self.dimensional != self.Dimensional.PENDING or any(v is not None for v in (self.margin_mm, self.loss_percent, self.short_rate_mm_year, self.long_rate_mm_year, self.triage_rate_mm_year)):
+                    raise ValidationError({review_name: "O cálculo deve identificar a revisão técnica utilizada."})
+            if review:
+                if not reading or review.reading_id != reading.pk:
+                    raise ValidationError({review_name: "Revisão não corresponde à leitura."})
+                if review.decision != review.Decision.VALID or not review.representative:
+                    raise ValidationError({review_name: "Leitura deve ser válida e representativa."})
+                if reading.corrects_id and not review.correction_approved:
+                    raise ValidationError({review_name: "Correção ainda não aprovada."})
+                if reading_name != "reading" and not review.comparable:
+                    raise ValidationError({review_name: "Referência sem comparabilidade validada."})
+                if reading_name == "initial_reading" and not review.baseline_approved:
+                    raise ValidationError({review_name: "Referência inicial não aprovada."})
+        if any(v is not None for v in (self.short_rate_mm_year, self.long_rate_mm_year)):
+            if not self.reading_review_id or not self.reading_review.comparable:
+                raise ValidationError({"reading_review": "Taxas exigem comparabilidade da leitura atual."})
+            if not self.series_review_id or self.series_review.decision != MeasurementSeriesRevision.Decision.COMPARABLE:
+                raise ValidationError({"series_review": "Taxas exigem decisão de comparabilidade da série."})
+        if self.series_review_id:
+            review = self.series_review
+            if review.series_id != self.series_id or review.point_revision_id != current.point_revision_id or review.effective_on > measurement_date(current.measured_at):
+                raise ValidationError({"series_review": "Revisão de comparabilidade fora do escopo/vigência."})
+        for name in ("initial_reading", "previous_reading"):
+            reference = getattr(self, name, None)
+            if reference:
+                if reference.series_id != self.series_id or reference.position_id != current.position_id:
+                    raise ValidationError({name: "Referência de outra série ou posição."})
+                if measurement_date(reference.measured_at) >= measurement_date(current.measured_at):
+                    raise ValidationError({name: "A referência deve ser de um dia anterior."})
+        if self.initial_reading_id and self.previous_reading_id:
+            if self.initial_reading.measured_at > self.previous_reading.measured_at:
+                raise ValidationError({"initial_reading": "Referência inicial posterior à anterior."})
+        if self.requirement_id:
+            req = self.requirement
+            position = current.position
+            if (req.asset_id != position.point.asset_id or req.point_id not in (None, position.point_id)
+                    or req.position_id not in (None, position.pk)):
+                raise ValidationError({"requirement": "Requisito de outro escopo."})
+            day = measurement_date(current.measured_at)
+            if not req.approved_at or not req.valid_from or day < req.valid_from or (req.valid_until and day > req.valid_until):
+                raise ValidationError({"requirement": "Requisito sem aprovação/vigência aplicável."})
+        elif self.dimensional != self.Dimensional.PENDING or self.margin_mm is not None:
+            raise ValidationError({"requirement": "Sem requisito, resultado dimensional deve ficar pendente."})
+        if self.dimensional != self.Dimensional.PENDING and self.margin_mm is None:
+            raise ValidationError({"margin_mm": "Resultado dimensional exige saldo calculado."})
+        if any(rate is not None and rate < 0 for rate in (self.short_rate_mm_year, self.long_rate_mm_year)) and self.trend != self.Trend.REVIEW:
+            raise ValidationError({"trend": "Variação negativa exige revisão de comparabilidade."})
+        if self.short_rate_mm_year is not None and not self.previous_reading_id:
+            raise ValidationError({"previous_reading": "Taxa curta exige referência anterior."})
+        if (self.long_rate_mm_year is not None or self.loss_percent is not None) and not self.initial_reading_id:
+            raise ValidationError({"initial_reading": "Taxa longa/perda exige referência inicial."})
+        if self.margin_mm is not None:
+            expected = self.Dimensional.ABOVE if self.margin_mm > 0 else (self.Dimensional.LIMIT if self.margin_mm == 0 else self.Dimensional.BELOW)
+            if self.dimensional != expected:
+                raise ValidationError({"dimensional": "Classificação incompatível com o saldo."})
+            if self.margin_mm <= 0 and any(v is not None for v in (self.life_short_days, self.life_long_days, self.life_triage_days)):
+                raise ValidationError("No limite/abaixo não há projeção de vida futura; use null e o estado dimensional.")
+        for life_name, rate_name in (("life_short_days", "short_rate_mm_year"), ("life_long_days", "long_rate_mm_year"), ("life_triage_days", "triage_rate_mm_year")):
+            if getattr(self, life_name) is not None:
+                rate = getattr(self, rate_name)
+                if rate is None or rate <= 0 or self.margin_mm is None or self.margin_mm <= 0:
+                    raise ValidationError({life_name: "Projeção exige saldo e taxa positivos."})
+        if self.triage_rate_mm_year is not None:
+            positive = [rate for rate in (self.short_rate_mm_year, self.long_rate_mm_year) if rate is not None and rate > 0]
+            if not positive or self.triage_rate_mm_year != max(positive):
+                raise ValidationError({"triage_rate_mm_year": "Triagem deve usar a maior taxa positiva comparável."})
+        if self.triage_rate_mm_year is not None and not self.triage_reason:
+            raise ValidationError({"triage_reason": "Explique a seleção conservadora, sem homologá-la."})
+        if self.supersedes_id:
+            if self.supersedes_id == self.pk or self.supersedes.reading_id != self.reading_id:
+                raise ValidationError({"supersedes": "Recálculo deve referenciar resultado anterior da mesma leitura."})
+
+
+class ThicknessCalculationReview(ImmutableCompanyRecord):
+    """A conclusão e a taxa adotada são decisões técnicas, separadas da triagem."""
+
+    class Decision(models.TextChoices):
+        PENDING = "pending", "Pendente"
+        APPROVED = "approved", "Aprovado"
+        ATTENTION = "attention", "Atenção"
+        REJECTED = "rejected", "Reprovado"
+
+    calculation = models.ForeignKey(ThicknessCalculation, on_delete=models.PROTECT, related_name="technical_reviews")
+    sequence = models.PositiveIntegerField(validators=[MinValueValidator(1)])
+    reviewer = models.ForeignKey(Professional, on_delete=models.PROTECT, related_name="calculation_reviews")
+    reviewed_at = models.DateTimeField()
+    decision = models.CharField(max_length=12, choices=Decision.choices, default=Decision.PENDING)
+    conclusion = models.TextField()
+    adopted_rate_mm_year = models.DecimalField(max_digits=30, decimal_places=15, null=True, blank=True)
+    adopted_rate_reason = models.TextField(blank=True)
+    adopted_life_days = models.PositiveBigIntegerField(null=True, blank=True)
+    recommendation = models.TextField(blank=True)
+    reinspection_on = models.DateField(null=True, blank=True)
+    reinspection_basis = models.TextField(blank=True)
+    plh_reviewed_by = models.ForeignKey(
+        Professional, null=True, blank=True, on_delete=models.PROTECT, related_name="plh_calculation_reviews"
+    )
+    plh_reviewed_at = models.DateTimeField(null=True, blank=True)
+    evidence = models.ForeignKey(
+        StoredFile, null=True, blank=True, on_delete=models.PROTECT, related_name="calculation_reviews"
+    )
+
+    class Meta(ImmutableCompanyRecord.Meta):
+        constraints = ImmutableCompanyRecord.Meta.constraints + [
+            models.UniqueConstraint(fields=["calculation", "sequence"], name="pi_calc_review_seq")
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.adopted_rate_mm_year is not None:
+            if self.adopted_rate_mm_year < 0 or not self.adopted_rate_reason:
+                raise ValidationError({"adopted_rate_reason": "Taxa adotada deve ser não negativa e justificada."})
+        if self.reinspection_on and not self.reinspection_basis:
+            raise ValidationError({"reinspection_basis": "Informe fundamento do prazo de reinspeção."})
+        if bool(self.plh_reviewed_by_id) != bool(self.plh_reviewed_at):
+            raise ValidationError("Revisão PLH exige profissional e data.")
+        if self.adopted_life_days is not None:
+            if not self.calculation_id or self.adopted_rate_mm_year is None or self.adopted_rate_mm_year <= 0 or self.calculation.margin_mm is None or self.calculation.margin_mm <= 0:
+                raise ValidationError({"adopted_life_days": "Vida adotada exige saldo e taxa positivos."})
+        if self.calculation_id and self.decision == self.Decision.APPROVED:
+            c = self.calculation
+            if c.dimensional != c.Dimensional.ABOVE or c.warnings or c.trend in (c.Trend.INSUFFICIENT, c.Trend.REVIEW):
+                raise ValidationError({"decision": "Resultado crítico ou com pendências não pode receber verde."})
+        if self.decision != self.Decision.PENDING and self.calculation_id:
+            inspection = self.calculation.reading.execution.inspection
+            if inspection.campaign_asset.project_asset.module == Module.NR13 and not self.plh_reviewed_at:
+                raise ValidationError("Conclusão no fluxo NR-13 exige revisão PLH.")

@@ -1,18 +1,29 @@
-{% load static %}
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-{% include "partials/_head.html" %}
+    {% include "partials/_head.html" %}
+
+    <title>{% block title %}Pires Integridade{% endblock %}</title>
 </head>
 <body>
-{% include "partials/_header.html" %}
-<main>
-    {%block content %}{% endblock %}
-    {% include 'partials/_messages.html' %}
-</main>
-{% include "partials/_footer.html" %}
-<div>
-    {% include "partials/_pagination.html" %}
-</div>
+    <a class="skip-link" href="#conteudo">
+        Pular para o conteúdo
+    </a>
+
+    {% include "partials/_header.html" %}
+
+    <main id="conteudo" class="app-main" tabindex="-1">
+        {% include "partials/_messages.html" %}
+
+        {% block content %}{% endblock %}
+
+        {% block pagination %}
+            {% include "partials/_pagination.html" %}
+        {% endblock %}
+    </main>
+
+    {% include "partials/_footer.html" %}
+
+    {% block scripts %}{% endblock %}
 </body>
 </html>

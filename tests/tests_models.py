@@ -1,4 +1,4 @@
-"""Testes de integridade. Executar com manage.py test sistema_pires.tests_models."""
+"""Testes de integridade. Executar com manage.py test tests --noinput."""
 
 from datetime import timedelta
 from decimal import Decimal
@@ -418,6 +418,9 @@ class ModelIntegrityTests(TestCase):
             unit="mm",
             revision="01",
             technical_basis="Teste",
+            valid_from=self.now.date(),
+            scope_description="Ativo completo",
+            applicable_code="Procedimento sintético de teste",
             approved_at=self.now,
             approved_by=self.professional,
         )

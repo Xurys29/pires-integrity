@@ -1,23 +1,33 @@
-<nav class="navbar">
-    <a href="/" class="navbar-brand">
-        Appa<span>Licitações</span>
-    </a>
+<header class="app-header">
+    <div class="header-inner">
+        <a href="/" class="brand" aria-label="Pires Integridade — início">
+            <strong>PIRES <span>INTEGRIDADE</span></strong>
+            <small>Engenharia e integridade de ativos</small>
+        </a>
 
-    <div class="navbar-links">
-        <a href="/">Início</a>
-        <a href="{% url 'appa:pagina_cadastro' %}">Teste Grátis</a>
+        <nav class="app-nav" aria-label="Navegação principal">
+            <a href="/">Início</a>
+
+            {% if user.is_authenticated %}
+                {% if user.is_staff %}
+                    <a href="{% url 'admin:index' %}">
+                        Administração
+                    </a>
+                {% endif %}
+            {% else %}
+                <a href="{% url 'admin:login' %}">
+                    Entrar
+                </a>
+            {% endif %}
+        </nav>
 
         {% if user.is_authenticated %}
-            <a href="#" style="color: #ffc107;">Olá, {{ user.username }}</a>
-            <a href="{% url 'admin:index' %}">Painel Admin</a>
-        {% else %}
-            {% if stakeholder %}
-                <a href="{% url 'appa:atualizar_palavras' identificador=stakeholder.identificador %}" style="color: #ffc107;">Meu Painel</a>
-            {% else %}
-                <a href="{% url 'appa:buscar_clientes' %}">Já sou Cliente</a>
-            {% endif %}
-
-            <a href="{% url 'admin:index' %}">Login</a>
+            <div class="header-actions">
+                <span>
+                    Olá,
+                    {{ user.get_full_name|default:user.get_username }}
+                </span>
+            </div>
         {% endif %}
     </div>
-</nav>
+</header>

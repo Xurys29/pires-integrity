@@ -1,10 +1,16 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Title</title>
-</head>
-<body>
-
-</body>
-</html>
+{% if messages %}
+    <section aria-label="Mensagens do sistema">
+        {% for message in messages %}
+            <div
+                class="alert {% if message.level == DEFAULT_MESSAGE_LEVELS.ERROR %}alert-error{% elif message.level == DEFAULT_MESSAGE_LEVELS.SUCCESS %}alert-success{% elif message.level == DEFAULT_MESSAGE_LEVELS.WARNING %}alert-warning{% else %}alert-info{% endif %}"
+                {% if message.level >= DEFAULT_MESSAGE_LEVELS.ERROR %}
+                    role="alert"
+                {% else %}
+                    role="status"
+                {% endif %}
+            >
+                {{ message }}
+            </div>
+        {% endfor %}
+    </section>
+{% endif %}
